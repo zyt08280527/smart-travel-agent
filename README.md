@@ -1,5 +1,7 @@
 # Smart Travel Agent（智能出行助手）
 
+[![CI](https://github.com/zyt08280527/smart-travel-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zyt08280527/smart-travel-agent/actions/workflows/ci.yml)
+
 一个面向 AI Agent 实习求职的全栈工程项目。用户使用自然语言描述出行需求，
 Agent 根据上下文自主选择天气、地点搜索、驾车、步行、公共交通和行程保存工具，
 并在写入行程前通过 Human-in-the-loop（HITL）请求用户审批。
@@ -214,6 +216,33 @@ python scripts\itinerary_hitl_eval.py
 python scripts\walking_itinerary_hitl_eval.py
 python scripts\transit_itinerary_hitl_eval.py
 ```
+
+行为评估使用固定的 7 条任务数据集，分别统计工具选择、工具参数和端到端任务完成情况，
+同时记录运行耗时、模型与 MCP 工具调用次数、Token 用量及外部 HTTP 尝试。评测报告写入
+`artifacts/evals/`，该目录中的运行结果不提交到版本控制。
+
+2026-07-30 的一次真实运行结果：
+
+| 指标 | 结果 |
+| --- | --- |
+| 工具选择正确率 | 7/7（100%） |
+| 参数正确率 | 6/6（100%） |
+| 任务完成率 | 7/7（100%） |
+| 外部服务阻塞案例 | 0/7 |
+| 平均案例耗时 | 8.73 秒 |
+| 总 Token | 55,296 |
+| 外部 HTTP 尝试 | 16 次，重试 0 次，失败尝试 0 次 |
+
+耗时、Token 和外部请求会随模型、网络和第三方服务状态变化，因此它们是测量样本，
+不是固定性能承诺。可使用下面的命令比较最近两次报告并检查准确率、延迟和 Token 回退：
+
+```powershell
+python scripts\compare_eval_reports.py
+```
+
+GitHub Actions 会在每次 push 和 pull request 时自动运行后端 Ruff、Pytest，
+以及前端测试、Oxlint 和生产构建。需要真实 API 和模型调用的行为评估不在公共 CI 中运行，
+避免泄露密钥、产生 Token 费用或把第三方网络波动误判为代码回归。
 
 ## 数据边界
 
