@@ -1,0 +1,2 @@
+"""Smart Travel Agent package."""
+

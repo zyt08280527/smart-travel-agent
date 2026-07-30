@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "missing_city_asks_clarification",
+      "category": "weather",
+      "message": "现在天气怎么样？",
+      "expected_tool": null
+    },
+    {
+      "name": "valid_city_calls_weather_tool",
+      "category": "weather",
+      "message": "深圳现在天气怎么样？",
+      "expected_tool": "query_current_weather",
+      "expected_args": {"city": "深圳"}
+    },
+    {
+      "name": "unknown_city_reports_tool_error",
+      "category": "weather",
+      "message": "请务必调用实时天气工具查询城市\"火星市\"，不要只根据常识回答。",
+      "expected_tool": "query_current_weather",
+      "expected_args": {"city": "火星市"},
+      "expect_tool_error": true
+    },
+    {
+      "name": "place_search_is_grounded_and_attributed",
+      "category": "place",
+      "message": "帮我搜索深圳大学，列出候选地点和经纬度。",
+      "expected_tool": "search_places",
+      "expected_args": {"query": "深圳大学"},
+      "required_final_substrings": [
+        "Data © OpenStreetMap contributors, ODbL 1.0.",
+        "http://osm.org/copyright"
+      ],
+      "forbidden_final_substrings": ["校区的天气", "景点的天气"]
+    },
+    {
+      "name": "place_names_are_resolved_before_route_planning",
+      "category": "route",
+      "message": "请规划从深圳大学粤海校区到深圳大学丽湖校区的驾车路线。如果起点和终点各只有一个候选，就直接使用；请说明距离和静态预计时长。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "plan_driving_route"
+      ],
+      "route_tool_from_endpoints": "plan_driving_route",
+      "required_final_substrings": [
+        "Routing data © OpenStreetMap contributors",
+        "Data © OpenStreetMap contributors, ODbL 1.0.",
+        "http://osm.org/copyright"
+      ]
+    },
+    {
+      "name": "walking_request_selects_walking_route_tool",
+      "category": "route",
+      "message": "请规划从深圳大学粤海校区到深圳大学丽湖校区的步行路线。如果起点和终点各只有一个候选，就直接使用；请说明距离和静态预计时长。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "plan_walking_route"
+      ],
+      "route_tool_from_endpoints": "plan_walking_route",
+      "required_final_substrings": [
+        "openrouteservice.org | OpenStreetMap contributors",
+        "Data © OpenStreetMap contributors, ODbL 1.0.",
+        "http://osm.org/copyright"
+      ],
+      "forbidden_final_substrings": ["环境较宜人"]
+    },
+    {
+      "name": "transit_request_selects_transit_route_tool",
+      "category": "route",
+      "message": "请规划从深圳大学粤海校区到深圳大学丽湖校区的公共交通路线。如果起点和终点各只有一个候选，就直接使用；请说明预计时长、步行距离和换乘方式。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "plan_transit_route"
+      ],
+      "route_tool_from_endpoints": "plan_transit_route",
+      "required_final_substrings": [
+        "公交路线数据来源：高德地图 Web服务 API",
+        "Data © OpenStreetMap contributors, ODbL 1.0.",
+        "http://osm.org/copyright"
+      ],
+      "forbidden_final_substrings": [
+        "该线路免费",
+        "可以免费乘坐",
+        "费用为0",
+        "费用为 0",
+        "车辆已经到站",
+        "车辆已经发车",
+        "查看校巴实时动态"
+      ]
+    }
+  ]
+}
