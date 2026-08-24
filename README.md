@@ -240,6 +240,17 @@ python scripts\transit_itinerary_hitl_eval.py
 python scripts\compare_eval_reports.py
 ```
 
+简单并发测试（需先启动后端）：
+
+```powershell
+python scripts\agent_load_test.py --requests 20 --concurrency 5
+```
+
+默认场景让 20 个独立会话并发执行不调用工具的短回答，用于测量 FastAPI、Agent 运行时、
+SQLite 会话写入和模型调用这条基础链路。2026-08-24 的一次本地运行中，20/20 请求成功，
+平均延迟 544.46 ms、P95 延迟 823.93 ms、失败率 0%。该结果不覆盖天气、地图等第三方
+工具延迟，也不是生产容量结论；完整逐请求结果写入 `artifacts/load-tests/`。
+
 GitHub Actions 会在每次 push 和 pull request 时自动运行后端 Ruff、Pytest，
 以及前端测试、Oxlint 和生产构建。需要真实 API 和模型调用的行为评估不在公共 CI 中运行，
 避免泄露密钥、产生 Token 费用或把第三方网络波动误判为代码回归。
