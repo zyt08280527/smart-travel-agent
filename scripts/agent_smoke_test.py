@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import sys
 from uuid import uuid4
 
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
@@ -53,6 +54,8 @@ async def main(user_message: str) -> None:
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--message",

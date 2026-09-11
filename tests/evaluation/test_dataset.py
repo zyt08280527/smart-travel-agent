@@ -15,8 +15,8 @@ def test_default_behavior_dataset_is_versioned_and_valid() -> None:
     dataset = load_eval_dataset()
 
     assert dataset.schema_version == 1
-    assert len(dataset.cases) == 7
-    assert len({case.name for case in dataset.cases}) == 7
+    assert len(dataset.cases) == 8
+    assert len({case.name for case in dataset.cases}) == 8
     assert {case.category for case in dataset.cases} == {
         "weather",
         "place",
@@ -65,6 +65,29 @@ def test_dataset_rejects_route_tool_outside_expected_sequence() -> None:
                             "resolve_route_endpoints"
                         ],
                         "route_tool_from_endpoints": "plan_driving_route",
+                    }
+                ],
+            }
+        )
+
+
+def test_dataset_rejects_planning_tool_outside_expected_sequence() -> None:
+    with pytest.raises(ValidationError, match="综合规划工具必须出现"):
+        EvalDataset.model_validate(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "name": "invalid_planning_case",
+                        "category": "route",
+                        "message": "比较出行方式",
+                        "expected_tool": "resolve_route_endpoints",
+                        "expected_tool_sequence": [
+                            "resolve_route_endpoints"
+                        ],
+                        "planning_tool_from_endpoints": (
+                            "recommend_travel_plan"
+                        ),
                     }
                 ],
             }

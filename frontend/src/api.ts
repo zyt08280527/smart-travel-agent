@@ -52,6 +52,12 @@ export type RouteResultCard = {
   mode: 'driving' | 'walking'
   distance_m: number
   duration_s: number
+  duration_basis?: 'static_without_live_traffic' | 'traffic_aware_estimate'
+  tolls_yuan?: number | null
+  taxi_cost_yuan?: number | null
+  traffic_lights?: number | null
+  restriction?: 0 | 1 | null
+  traffic_status_counts?: Record<string, number>
   step_count: number
   attribution: string
 }

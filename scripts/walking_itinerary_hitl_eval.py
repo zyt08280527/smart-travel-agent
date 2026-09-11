@@ -149,7 +149,7 @@ async def evaluate(storage_path: Path) -> None:
         print(f"\n最终回答：\n{final_answer}\n")
         require("保存" in final_answer, "最终回答应提及保存结果")
         require(
-            "openrouteservice.org | OpenStreetMap contributors" in final_answer,
+            "步行路线数据来源：高德地图 Web服务 API" in final_answer,
             "最终回答应保留步行路线数据署名",
         )
         require(

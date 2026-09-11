@@ -45,16 +45,17 @@ Qwen 能通过 tool calling 自主决定是否调用天气工具，而不是用 
 
 ## 阶段 3：扩展为智能出行 Agent（已完成）
 
-已实现 4 个 MCP Server、7 个工具：
+已实现 5 个 MCP Server、8 个工具：
 
 - 天气查询；
 - 地点搜索和路线起终点解析；
 - 驾车、步行和公共交通规划；
+- 综合天气与三种路线的交通方式比较；
 - 行程保存。
 
 已完成：
 
-- OpenStreetMap、OSRM、openrouteservice、高德 Web服务 API 数据适配；
+- OpenStreetMap 地点搜索、Open-Meteo 天气与高德路线规划数据适配；
 - WGS84 与 GCJ-02 坐标转换；
 - 多工具顺序编排；
 - `save_itinerary` 的 HITL 批准与拒绝；
@@ -100,7 +101,7 @@ Qwen 能通过 tool calling 自主决定是否调用天气工具，而不是用 
 - 天气、地点、驾车、步行和公交的行为评估；
 - HITL 批准、拒绝、只写一次和服务重启恢复测试；
 - Ruff、Pytest、Vitest、Oxlint、TypeScript 和前端生产构建。
-- 固定的 7 条 Agent 行为评测数据集；
+- 固定的 8 条 Agent 行为评测数据集；
 - 工具选择正确率、参数正确率和任务完成率统计；
 - 端到端延迟、模型调用、MCP 工具调用和 Token 用量统计；
 - 外部 HTTP 请求的服务方、路径、状态码、耗时和成功状态观测；

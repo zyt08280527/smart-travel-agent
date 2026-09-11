@@ -146,6 +146,26 @@ def test_render_user_response_keeps_truthful_live_traffic_boundary() -> None:
     assert render_user_response([AIMessage(content=boundary)]) == boundary
 
 
+def test_render_user_response_keeps_provider_backed_driving_traffic_claim() -> None:
+    messages = [
+        ToolMessage(
+            name="plan_driving_route",
+            tool_call_id="call-route",
+            content=(
+                '{"duration_basis":"traffic_aware_estimate",'
+                '"traffic_segments":[{"status":"畅通","distance_m":1000}],'
+                '"attribution":"驾车路线数据来源：高德地图 Web服务 API"}'
+            ),
+        ),
+        AIMessage(content="查询时大部分路段路况畅通，出发前请再次确认。"),
+    ]
+
+    rendered = render_user_response(messages)
+
+    assert "路况畅通" in rendered
+    assert LIVE_TRAFFIC_NOTICE not in rendered
+
+
 def test_render_user_response_appends_route_attribution() -> None:
     route_attribution = "Routing data © OpenStreetMap contributors"
     messages = [
@@ -165,9 +185,82 @@ def test_render_user_response_appends_route_attribution() -> None:
     assert rendered.endswith(f"数据来源：{route_attribution}")
 
 
+def test_render_user_response_understands_composite_planning_result() -> None:
+    messages = [
+        HumanMessage(content="请比较出行方式。"),
+        ToolMessage(
+            name="recommend_travel_plan",
+            tool_call_id="call-plan",
+            content=(
+                '{"recommendation":{"ranked_options":['
+                '{"option":{"mode":"driving",'
+                '"duration_basis":"traffic_aware_estimate",'
+                '"traffic_status_counts":{"畅通":2},'
+                '"attribution":"高德驾车"}},'
+                '{"option":{"mode":"transit","cost_yuan":null,'
+                '"attribution":"高德公交"}},'
+                '{"option":{"mode":"walking",'
+                '"attribution":"高德步行"}}]}}'
+            ),
+        ),
+        AIMessage(content="查询时路况畅通。\n公交免费。"),
+    ]
+
+    rendered = render_user_response(messages)
+
+    assert "查询时路况畅通" in rendered
+    assert LIVE_TRAFFIC_NOTICE not in rendered
+    assert "公交免费" not in rendered
+    assert TRANSIT_COST_NOTICE in rendered
+    assert "高德驾车" in rendered
+    assert "高德公交" in rendered
+    assert "高德步行" in rendered
+
+
+def test_render_user_response_deterministically_renders_planning_result() -> None:
+    messages = [
+        HumanMessage(content="哪种方式合适？"),
+        ToolMessage(
+            name="recommend_travel_plan",
+            tool_call_id="call-plan",
+            content=(
+                '{"context":{"city":"深圳","origin_name":"粤海校区",'
+                '"destination_name":"丽湖校区","weather":{'
+                '"temperature_c":30,"apparent_temperature_c":33,'
+                '"precipitation_mm":0,"wind_speed_kmh":10,'
+                '"condition":"晴朗"}},"recommendation":{'
+                '"recommended_mode":"driving","confidence":0.55,'
+                '"ranked_options":[{"option":{"mode":"driving",'
+                '"distance_m":10000,"duration_s":1800,"tolls_yuan":0,'
+                '"taxi_cost_yuan":30,"traffic_status_counts":{"畅通":3},'
+                '"attribution":"高德驾车"},"scores":{"total":90}},'
+                '{"option":{"mode":"transit","distance_m":11000,'
+                '"duration_s":2400,"walking_distance_m":500,'
+                '"transfer_count":1,"cost_yuan":null,'
+                '"attribution":"高德公交"},"scores":{"total":80}}],'
+                '"limitations":["transit 方案缺少费用数据"]}}'
+            ),
+        ),
+        AIMessage(content="无需停车，路线很直接，强烈推荐驾车。"),
+    ]
+
+    rendered = render_user_response(messages)
+
+    assert "推荐方式：驾车（推荐区分度 55.0%）" in rendered
+    assert "道路通行费 0 元" in rendered
+    assert "出租车估价 30 元" in rendered
+    assert "票价未提供" in rendered
+    assert "公共交通方案缺少费用数据" in rendered
+    assert "无需停车" not in rendered
+    assert "路线很直接" not in rendered
+    assert "强烈推荐" not in rendered
+    assert "高德驾车" in rendered
+    assert "高德公交" in rendered
+
+
 def test_render_user_response_uses_only_current_turn_attribution() -> None:
     transit_attribution = "公交路线数据来源：高德地图 Web服务 API"
-    walking_attribution = "openrouteservice.org | OpenStreetMap contributors"
+    walking_attribution = "步行路线数据来源：高德地图 Web服务 API"
     messages = [
         HumanMessage(content="请规划公共交通路线。"),
         ToolMessage(

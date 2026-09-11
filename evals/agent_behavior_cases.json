@@ -37,7 +37,7 @@
     {
       "name": "place_names_are_resolved_before_route_planning",
       "category": "route",
-      "message": "请规划从深圳大学粤海校区到深圳大学丽湖校区的驾车路线。如果起点和终点各只有一个候选，就直接使用；请说明距离和静态预计时长。",
+      "message": "请规划从深圳大学粤海校区到深圳大学丽湖校区的驾车路线。如果起点和终点各只有一个候选，就直接使用；请说明距离、交通感知预计时长和查询时路况。",
       "expected_tool": "resolve_route_endpoints",
       "expected_args": {
         "origin_query": "深圳大学粤海校区",
@@ -49,7 +49,7 @@
       ],
       "route_tool_from_endpoints": "plan_driving_route",
       "required_final_substrings": [
-        "Routing data © OpenStreetMap contributors",
+        "驾车路线数据来源：高德地图 Web服务 API",
         "Data © OpenStreetMap contributors, ODbL 1.0.",
         "http://osm.org/copyright"
       ]
@@ -69,7 +69,7 @@
       ],
       "route_tool_from_endpoints": "plan_walking_route",
       "required_final_substrings": [
-        "openrouteservice.org | OpenStreetMap contributors",
+        "步行路线数据来源：高德地图 Web服务 API",
         "Data © OpenStreetMap contributors, ODbL 1.0.",
         "http://osm.org/copyright"
       ],
@@ -102,6 +102,36 @@
         "车辆已经到站",
         "车辆已经发车",
         "查看校巴实时动态"
+      ]
+    },
+    {
+      "name": "unspecified_mode_uses_composite_planning_without_duplicate_weather",
+      "category": "route",
+      "message": "请比较从深圳大学粤海校区到深圳大学丽湖校区的出行方式。如果地点有多个候选，请选择 importance 最高的候选；根据当前天气推荐最合适的方式。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "required_final_substrings": [
+        "推荐方式：",
+        "实际温度",
+        "体感温度",
+        "驾车路线数据来源：高德地图 Web服务 API",
+        "公交路线数据来源：高德地图 Web服务 API",
+        "步行路线数据来源：高德地图 Web服务 API",
+        "Data © OpenStreetMap contributors, ODbL 1.0.",
+        "http://osm.org/copyright"
+      ],
+      "forbidden_final_substrings": [
+        "无需停车",
+        "路线相对直接",
+        "强烈推荐"
       ]
     }
   ]

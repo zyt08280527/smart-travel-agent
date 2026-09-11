@@ -111,6 +111,97 @@ def test_score_route_requires_coordinates_from_endpoint_result() -> None:
     assert any("第一组候选坐标一致" in failure for failure in result.failures)
 
 
+def test_score_composite_plan_rejects_duplicate_weather_call() -> None:
+    case = EvalCase(
+        name="composite_plan_sequence_case",
+        category="route",
+        message="比较出行方式",
+        expected_tool="resolve_route_endpoints",
+        expected_tool_sequence=(
+            "resolve_route_endpoints",
+            "recommend_travel_plan",
+        ),
+        planning_tool_from_endpoints="recommend_travel_plan",
+    )
+    endpoint_payload = {
+        "origin": {"places": [{"latitude": 22.5, "longitude": 113.9}]},
+        "destination": {
+            "places": [{"latitude": 22.6, "longitude": 114.0}]
+        },
+    }
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "resolve_route_endpoints",
+                    "args": {},
+                    "id": "call-endpoints",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(
+            content=json.dumps(endpoint_payload),
+            name="resolve_route_endpoints",
+            tool_call_id="call-endpoints",
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "query_current_weather",
+                    "args": {"city": "深圳"},
+                    "id": "call-weather",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(
+            content="{}",
+            name="query_current_weather",
+            tool_call_id="call-weather",
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "recommend_travel_plan",
+                    "args": {
+                        "city": "深圳",
+                        "origin_name": "粤海校区",
+                        "destination_name": "丽湖校区",
+                        "origin_latitude": 22.5,
+                        "origin_longitude": 113.9,
+                        "destination_latitude": 22.6,
+                        "destination_longitude": 114.0,
+                        "priority": "balanced",
+                    },
+                    "id": "call-plan",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(
+            content="{}",
+            name="recommend_travel_plan",
+            tool_call_id="call-plan",
+        ),
+        AIMessage(content="推荐驾车。"),
+    ]
+
+    result = score_case(case, messages)
+
+    assert result.tool_selection_correct is False
+    assert result.parameter_correct is True
+    assert result.task_completed is False
+    assert result.actual_tool_sequence == [
+        "resolve_route_endpoints",
+        "query_current_weather",
+        "recommend_travel_plan",
+    ]
+
+
 def test_summarize_results_excludes_no_tool_case_from_parameter_denominator() -> None:
     no_tool_case = EvalCase(
         name="no_tool_case",

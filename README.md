@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/zyt08280527/smart-travel-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zyt08280527/smart-travel-agent/actions/workflows/ci.yml)
 
-一个面向 AI Agent 实习求职的全栈工程项目。用户使用自然语言描述出行需求，
-Agent 根据上下文自主选择天气、地点搜索、驾车、步行、公共交通和行程保存工具，
-并在写入行程前通过 Human-in-the-loop（HITL）请求用户审批。
+一个用于解决自然语言出行路线规划与交通方式选择问题的全栈智能助手。用户只需描述
+起终点、出行偏好或限制条件，Agent 就能组合天气、地点解析、驾车、步行和公共交通能力，
+比较候选方案并给出可解释建议；写入行程前会通过 Human-in-the-loop（HITL）请求用户审批。
 
 项目当前已具备可运行的 React 前端、FastAPI 后端、MCP 工具服务、
 LangGraph SQLite checkpoint、独立产品会话历史、多轮对话、行为评估和自动化测试。
@@ -13,9 +13,10 @@ LangGraph SQLite checkpoint、独立产品会话历史、多轮对话、行为�
 
 - 城市级实时天气查询：温度、体感温度、降水量、风速和天气现象；
 - 地点搜索与起终点解析：返回候选地点、经纬度和完整数据署名；
-- 驾车路线规划：距离、静态预计时长和分步导航；
-- 步行路线规划：基于 openrouteservice 的中文步行指引；
+- 驾车路线规划：基于高德的交通感知时长、费用信息、路况和分步导航；
+- 步行路线规划：基于高德路线规划 2.0 的预计时长和中文步行指引；
 - 公共交通规划：步行接驳、公交/地铁分段、换乘次数和候选方案；
+- 综合出行推荐：并发获取当前天气与三种路线，按时间、费用、步行和换乘偏好评分并支持失败降级；
 - 多轮 Agent 对话：使用同一个 `thread_id` 保留上下文；
 - HITL 行程保存：用户批准后才写入 JSONL，拒绝则不产生业务记录；
 - SQLite checkpoint：FastAPI 重启后仍可恢复对话和待审批工作流；
@@ -46,10 +47,8 @@ LangChain create_agent + LangGraph
         └── MultiServerMCPClient
               ├── weather MCP ── Open-Meteo
               ├── place MCP ──── OpenStreetMap Nominatim
-              ├── route MCP
-              │     ├── OSRM（驾车）
-              │     ├── openrouteservice（步行）
-              │     └── 高德 Web服务 API（公共交通）
+              ├── route MCP ─► 高德 Web服务 API（驾车/步行/公共交通）
+              ├── planning MCP ─► 天气与三种路线并发比较、规则评分和失败降级
               └── itinerary MCP ─► data/itineraries.jsonl
 ```
 
@@ -63,6 +62,7 @@ LangChain create_agent + LangGraph
 | `plan_driving_route` | 规划驾车路线 |
 | `plan_walking_route` | 规划步行路线 |
 | `plan_transit_route` | 规划公共交通路线 |
+| `recommend_travel_plan` | 综合天气与三种路线，比较并推荐交通方式 |
 | `save_itinerary` | 保存行程；执行前必须通过 HITL 审批 |
 
 ## 技术栈
@@ -103,7 +103,6 @@ Copy-Item .env.example .env
 ```text
 DASHSCOPE_API_KEY=
 DASHSCOPE_BASE_URL=
-ORS_API_KEY=
 AMAP_API_KEY=
 ```
 
@@ -217,21 +216,21 @@ python scripts\walking_itinerary_hitl_eval.py
 python scripts\transit_itinerary_hitl_eval.py
 ```
 
-行为评估使用固定的 7 条任务数据集，分别统计工具选择、工具参数和端到端任务完成情况，
+行为评估使用固定的 8 条任务数据集，分别统计工具选择、工具参数和端到端任务完成情况，
 同时记录运行耗时、模型与 MCP 工具调用次数、Token 用量及外部 HTTP 尝试。评测报告写入
 `artifacts/evals/`，该目录中的运行结果不提交到版本控制。
 
-2026-07-30 的一次真实运行结果：
+2026-09-11 的一次真实运行结果：
 
 | 指标 | 结果 |
 | --- | --- |
-| 工具选择正确率 | 7/7（100%） |
-| 参数正确率 | 6/6（100%） |
-| 任务完成率 | 7/7（100%） |
-| 外部服务阻塞案例 | 0/7 |
-| 平均案例耗时 | 8.73 秒 |
-| 总 Token | 55,296 |
-| 外部 HTTP 尝试 | 16 次，重试 0 次，失败尝试 0 次 |
+| 工具选择正确率 | 8/8（100%） |
+| 参数正确率 | 7/7（100%） |
+| 任务完成率 | 8/8（100%） |
+| 外部服务阻塞案例 | 0/8 |
+| 平均案例耗时 | 13.57 秒 |
+| 总 Token | 87,497 |
+| 外部 HTTP 尝试 | 30 次，重试 0 次，失败尝试 0 次 |
 
 耗时、Token 和外部请求会随模型、网络和第三方服务状态变化，因此它们是测量样本，
 不是固定性能承诺。可使用下面的命令比较最近两次报告并检查准确率、延迟和 Token 回退：
@@ -259,7 +258,7 @@ GitHub Actions 会在每次 push 和 pull request 时自动运行后端 Ruff、P
 
 - 天气工具只支持城市级当前天气，不支持校区或精确坐标天气；
 - 当前天气结果不包含湿度、紫外线指数和降水概率；
-- 路线时长为静态预估，不包含实时拥堵；
+- 驾车时长和路况来自查询时的交通感知快照；步行与公共交通时长为静态预计；
 - 公共交通费用为 `null` 时只表示未提供，不能推断免费；
 - 公共交通工具不提供实时班次、车辆位置、到站或运营状态；
 - 行程当前只支持本地保存，不支持订票或导出文件；
@@ -288,9 +287,9 @@ smart-travel-agent/
 
 分阶段学习记录见 [docs/learning-roadmap.md](docs/learning-roadmap.md)。
 
-## 可用于简历的项目要点
+## 工程实现要点
 
-- 基于 LangChain/LangGraph 构建能自主选择 7 个 MCP 工具的智能出行 Agent；
+- 基于 LangChain/LangGraph 构建能自主选择 8 个 MCP 工具的智能出行 Agent；
 - 设计 Domain → Service → MCP → Agent 分层，统一多来源 API 数据并用 Pydantic 校验；
 - 使用 HITL 中间件保护行程写入，通过批准/拒绝流程避免模型直接执行有副作用操作；
 - 使用 Async SQLite checkpoint 持久化多轮会话与 interrupt，支持服务重启后恢复审批；

@@ -6,11 +6,15 @@ from mcp.types import CallToolResult
 from pydantic import ValidationError
 
 from travel_agent.domain.route import GeoPoint, RoutePlan
-from travel_agent.observability.http import capture_external_http_requests
+from travel_agent.observability.http import (
+    capture_external_http_requests,
+    configure_safe_http_logging,
+)
 from travel_agent.observability.mcp import observed_text_result
-from travel_agent.services.route import RouteService, RouteServiceError
+from travel_agent.services.amap_driving import AmapDrivingRouteService
+from travel_agent.services.amap_walking import AmapWalkingRouteService
+from travel_agent.services.route import RouteServiceError
 from travel_agent.services.transit import TransitService, TransitServiceError
-from travel_agent.services.walking_route import WalkingRouteService
 
 mcp = FastMCP("travel-route")
 
@@ -59,8 +63,8 @@ async def plan_driving_route(
         destination_longitude: 终点经度，取值 -180 到 180。
 
     Returns:
-        包含驾车距离、静态预计时长、导航步骤数量、导航步骤、
-        路线轨迹点数量和数据署名的 JSON 字符串。
+        包含驾车距离、交通感知预计时长、通行费、出租车估价、
+        红绿灯、限行、分路段交通状态、导航步骤和数据署名的 JSON 字符串。
         为减少模型上下文消耗，不返回完整路线轨迹坐标。
     """
     with capture_external_http_requests() as requests:
@@ -73,7 +77,10 @@ async def plan_driving_route(
                 latitude=destination_latitude,
                 longitude=destination_longitude,
             )
-            result = await RouteService().plan_driving_route(origin, destination)
+            result = await AmapDrivingRouteService().plan_driving_route(
+                origin,
+                destination,
+            )
             text = json.dumps(
                 _build_agent_payload(result),
                 ensure_ascii=False,
@@ -116,7 +123,7 @@ async def plan_walking_route(
                 latitude=destination_latitude,
                 longitude=destination_longitude,
             )
-            result = await WalkingRouteService().plan_walking_route(
+            result = await AmapWalkingRouteService().plan_walking_route(
                 origin,
                 destination,
             )
@@ -185,6 +192,7 @@ async def plan_transit_route(
 
 def main() -> None:
     # stdio is protocol traffic: never print ordinary logs to stdout here.
+    configure_safe_http_logging()
     mcp.run(transport="stdio")
 
 

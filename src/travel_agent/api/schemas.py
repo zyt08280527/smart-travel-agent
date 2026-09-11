@@ -58,6 +58,15 @@ class RouteResultCard(BaseModel):
     mode: Literal["driving", "walking"]
     distance_m: float = Field(ge=0)
     duration_s: float = Field(ge=0)
+    duration_basis: Literal[
+        "static_without_live_traffic",
+        "traffic_aware_estimate",
+    ] = "static_without_live_traffic"
+    tolls_yuan: float | None = Field(default=None, ge=0)
+    taxi_cost_yuan: float | None = Field(default=None, ge=0)
+    traffic_lights: int | None = Field(default=None, ge=0)
+    restriction: Literal[0, 1] | None = None
+    traffic_status_counts: dict[str, int] = Field(default_factory=dict)
     step_count: int = Field(ge=0)
     attribution: str = Field(min_length=1)
 

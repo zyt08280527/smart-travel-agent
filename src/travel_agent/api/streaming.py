@@ -88,12 +88,33 @@ def _route_card(message: ToolMessage) -> RouteResultCard | None:
     if payload.get("mode") != expected_mode:
         return None
 
+    traffic_status_counts: dict[str, int] = {}
+    traffic_segments = payload.get("traffic_segments", [])
+    if isinstance(traffic_segments, list):
+        for segment in traffic_segments:
+            if not isinstance(segment, dict):
+                continue
+            status = segment.get("status")
+            if isinstance(status, str) and status:
+                traffic_status_counts[status] = (
+                    traffic_status_counts.get(status, 0) + 1
+                )
+
     try:
         return RouteResultCard(
             type="route",
             mode=expected_mode,
             distance_m=payload["distance_m"],
             duration_s=payload["duration_s"],
+            duration_basis=payload.get(
+                "duration_basis",
+                "static_without_live_traffic",
+            ),
+            tolls_yuan=payload.get("tolls_yuan"),
+            taxi_cost_yuan=payload.get("taxi_cost_yuan"),
+            traffic_lights=payload.get("traffic_lights"),
+            restriction=payload.get("restriction"),
+            traffic_status_counts=traffic_status_counts,
             step_count=payload["step_count"],
             attribution=payload["attribution"],
         )

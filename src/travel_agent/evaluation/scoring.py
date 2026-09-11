@@ -60,6 +60,23 @@ def _tool_json_payloads(message: ToolMessage) -> list[dict[str, Any]]:
     return payloads
 
 
+def _expected_endpoint_coordinates(
+    endpoint_payload: dict[str, Any] | None,
+) -> dict[str, object] | None:
+    """Extract the first resolved origin and destination coordinates."""
+    try:
+        origin = endpoint_payload["origin"]["places"][0]
+        destination = endpoint_payload["destination"]["places"][0]
+        return {
+            "origin_latitude": origin["latitude"],
+            "origin_longitude": origin["longitude"],
+            "destination_latitude": destination["latitude"],
+            "destination_longitude": destination["longitude"],
+        }
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def score_case(case: EvalCase, messages: list[object]) -> EvalCaseResult:
     """Score tool selection, parameters, and complete task behavior."""
     failures: list[str] = []
@@ -130,7 +147,10 @@ def score_case(case: EvalCase, messages: list[object]) -> EvalCaseResult:
             f"实际为 {actual_tool_sequence!r}"
         )
 
-    if case.route_tool_from_endpoints is not None:
+    endpoint_dependent_tool = (
+        case.route_tool_from_endpoints or case.planning_tool_from_endpoints
+    )
+    if endpoint_dependent_tool is not None:
         endpoint_payload = next(
             (
                 payload
@@ -140,37 +160,40 @@ def score_case(case: EvalCase, messages: list[object]) -> EvalCaseResult:
             ),
             None,
         )
-        route_call = next(
+        downstream_call = next(
             (
                 call
                 for call in tool_calls
-                if call["name"] == case.route_tool_from_endpoints
+                if call["name"] == endpoint_dependent_tool
             ),
             None,
         )
-        try:
-            origin = endpoint_payload["origin"]["places"][0]
-            destination = endpoint_payload["destination"]["places"][0]
-            expected_route_args = {
-                "origin_latitude": origin["latitude"],
-                "origin_longitude": origin["longitude"],
-                "destination_latitude": destination["latitude"],
-                "destination_longitude": destination["longitude"],
-            }
-        except (KeyError, IndexError, TypeError):
+        expected_coordinates = _expected_endpoint_coordinates(endpoint_payload)
+        if expected_coordinates is None:
             parameter_correct = False
             failures.append("起终点工具结果应包含可用于路线规划的候选坐标")
         else:
-            if route_call is None:
+            if downstream_call is None:
                 parameter_correct = False
                 failures.append(
                     "获得起终点坐标后应调用 "
-                    f"{case.route_tool_from_endpoints}"
+                    f"{endpoint_dependent_tool}"
                 )
-            elif route_call["args"] != expected_route_args:
+            elif case.route_tool_from_endpoints is not None and (
+                downstream_call["args"] != expected_coordinates
+            ):
                 parameter_correct = False
                 failures.append(
                     "路线工具参数必须与起终点工具返回的第一组候选坐标一致"
+                )
+            elif case.planning_tool_from_endpoints is not None and not all(
+                downstream_call["args"].get(key) == value
+                for key, value in expected_coordinates.items()
+            ):
+                parameter_correct = False
+                failures.append(
+                    "综合规划工具的坐标参数必须与起终点工具返回的"
+                    "第一组候选坐标一致"
                 )
 
     if case.expect_tool_error:

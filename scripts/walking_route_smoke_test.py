@@ -5,7 +5,7 @@ import asyncio
 import json
 
 from travel_agent.domain.route import GeoPoint
-from travel_agent.services.walking_route import WalkingRouteService
+from travel_agent.services.amap_walking import AmapWalkingRouteService
 
 
 async def run(
@@ -23,7 +23,10 @@ async def run(
         latitude=destination_latitude,
         longitude=destination_longitude,
     )
-    route = await WalkingRouteService().plan_walking_route(origin, destination)
+    route = await AmapWalkingRouteService().plan_walking_route(
+        origin,
+        destination,
+    )
 
     summary = {
         "mode": route.mode,

@@ -142,6 +142,10 @@ function formatDuration(durationS: number): string {
 
 function RouteCard({ card }: { card: RouteResultCard }) {
   const modeLabel = card.mode === 'driving' ? '驾车路线' : '步行路线'
+  const trafficAware = card.duration_basis === 'traffic_aware_estimate'
+  const trafficSummary = Object.entries(card.traffic_status_counts ?? {})
+    .map(([status, count]) => `${status} ${count} 段`)
+    .join(' · ')
 
   return (
     <section className="result-card route-card" aria-label={modeLabel}>
@@ -158,17 +162,40 @@ function RouteCard({ card }: { card: RouteResultCard }) {
           <dd>{formatDistance(card.distance_m)}</dd>
         </div>
         <div>
-          <dt>静态预计时长</dt>
+          <dt>{trafficAware ? '交通感知预计时长' : '静态预计时长'}</dt>
           <dd>{formatDuration(card.duration_s)}</dd>
         </div>
         <div>
           <dt>导航步骤</dt>
           <dd>{card.step_count} 步</dd>
         </div>
+        {card.tolls_yuan != null && (
+          <div>
+            <dt>道路通行费</dt>
+            <dd>¥{card.tolls_yuan.toFixed(2)}</dd>
+          </div>
+        )}
+        {card.taxi_cost_yuan != null && (
+          <div>
+            <dt>出租车估价</dt>
+            <dd>¥{card.taxi_cost_yuan.toFixed(2)}</dd>
+          </div>
+        )}
+        {card.traffic_lights != null && (
+          <div>
+            <dt>红绿灯</dt>
+            <dd>{card.traffic_lights} 个</dd>
+          </div>
+        )}
       </dl>
 
+      {trafficSummary && (
+        <p className="result-card-notice">查询时路况：{trafficSummary}</p>
+      )}
       <p className="result-card-notice">
-        预计时长不包含实时路况，出发前请使用实时导航确认。
+        {trafficAware
+          ? '预计时长包含查询时交通状况，但不是持续更新的实时导航，出发前请再次确认。'
+          : '预计时长不包含实时路况，出发前请使用实时导航确认。'}
       </p>
       <p className="result-card-time">数据来源：{card.attribution}</p>
     </section>

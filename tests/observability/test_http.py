@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import pytest
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest
@@ -6,6 +8,7 @@ from mcp.types import CallToolResult
 from travel_agent.observability.http import (
     ExternalHttpRequest,
     capture_external_http_requests,
+    configure_safe_http_logging,
     observed_request,
 )
 from travel_agent.observability.mcp import (
@@ -226,3 +229,21 @@ async def test_mcp_interceptor_preserves_hidden_observability() -> None:
             "external_http_requests": [observation.model_dump()],
         }
     }
+
+
+def test_configure_safe_http_logging_suppresses_request_urls() -> None:
+    httpx_logger = logging.getLogger("httpx")
+    httpcore_logger = logging.getLogger("httpcore")
+    previous_httpx_level = httpx_logger.level
+    previous_httpcore_level = httpcore_logger.level
+    try:
+        httpx_logger.setLevel(logging.INFO)
+        httpcore_logger.setLevel(logging.DEBUG)
+
+        configure_safe_http_logging()
+
+        assert httpx_logger.level == logging.WARNING
+        assert httpcore_logger.level == logging.WARNING
+    finally:
+        httpx_logger.setLevel(previous_httpx_level)
+        httpcore_logger.setLevel(previous_httpcore_level)

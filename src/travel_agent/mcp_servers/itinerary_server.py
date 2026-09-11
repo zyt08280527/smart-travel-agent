@@ -21,7 +21,10 @@ async def save_itinerary(
     travel_mode: Literal["driving", "walking", "transit"],
     distance_m: float,
     duration_s: float,
-    duration_basis: Literal["static_without_live_traffic"],
+    duration_basis: Literal[
+        "static_without_live_traffic",
+        "traffic_aware_estimate",
+    ],
     notes: str | None = None,
 ) -> str:
     """将已经规划好的行程保存到本地存储。
@@ -36,9 +39,9 @@ async def save_itinerary(
         travel_mode: 出行方式，driving 表示驾车，walking 表示步行，
             transit 表示公共交通。
         distance_m: 路线距离，单位为米。
-        duration_s: 静态预计时长，单位为秒。
-        duration_basis: 时长依据，固定为 static_without_live_traffic，
-            表示不包含实时路况。
+        duration_s: 路线预计时长，单位为秒。
+        duration_basis: 时长依据。static_without_live_traffic 表示静态预计；
+            traffic_aware_estimate 表示包含查询时交通状况的预计值。
         notes: 可选的行程备注。
 
     Returns:

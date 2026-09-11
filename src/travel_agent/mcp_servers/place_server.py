@@ -3,7 +3,10 @@ import json
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from travel_agent.observability.http import capture_external_http_requests
+from travel_agent.observability.http import (
+    capture_external_http_requests,
+    configure_safe_http_logging,
+)
 from travel_agent.observability.mcp import observed_text_result
 from travel_agent.services.place import PlaceService, PlaceServiceError
 
@@ -68,6 +71,7 @@ async def resolve_route_endpoints(
 
 def main() -> None:
     # stdio is protocol traffic: never print ordinary logs to stdout here.
+    configure_safe_http_logging()
     mcp.run(transport="stdio")
 
 

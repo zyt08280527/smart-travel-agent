@@ -3,7 +3,10 @@ import json
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from travel_agent.observability.http import capture_external_http_requests
+from travel_agent.observability.http import (
+    capture_external_http_requests,
+    configure_safe_http_logging,
+)
 from travel_agent.observability.mcp import observed_text_result
 from travel_agent.services.weather import WeatherService, WeatherServiceError
 
@@ -13,6 +16,9 @@ mcp = FastMCP("travel-weather")
 @mcp.tool()
 async def query_current_weather(city: str) -> CallToolResult:
     """查询指定城市的当前天气。
+
+    仅用于单独的天气问题。用户要求比较交通方式、推荐出行方案或询问怎么去时，
+    不要调用本工具；recommend_travel_plan 会在内部自行查询当前天气。
 
     Args:
         city: 中文或英文城市名，例如“深圳”或“Shanghai”。不要填写区县地址或景点名。
@@ -34,6 +40,7 @@ async def query_current_weather(city: str) -> CallToolResult:
 
 def main() -> None:
     # stdio is protocol traffic: never print ordinary logs to stdout here.
+    configure_safe_http_logging()
     mcp.run(transport="stdio")
 
 

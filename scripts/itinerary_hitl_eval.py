@@ -111,8 +111,8 @@ async def evaluate(storage_path: Path) -> None:
         require("天气" in pending_notes, "待保存备注应包含天气信息")
         require(
             pending_action["args"].get("duration_basis")
-            == "static_without_live_traffic",
-            "待保存操作必须用结构化字段说明时长不包含实时路况",
+            == "traffic_aware_estimate",
+            "驾车行程必须沿用交通感知预计时长依据",
         )
         print("[PASS] weather_place_route_and_save_are_orchestrated")
 
@@ -185,12 +185,9 @@ async def evaluate(storage_path: Path) -> None:
                     "紫外线很强",
                     "紫外线强烈",
                     "紫外线较弱",
-                    "无拥堵提示",
-                    "当前无拥堵",
-                    "路况畅通",
                 )
             ),
-            "最终回答不应包含工具未提供的紫外线或实时拥堵判断",
+            "最终回答不应包含工具未提供的紫外线判断",
         )
         print("[PASS] final_answer_respects_data_boundaries")
 

@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     dashscope_api_key: SecretStr
     dashscope_base_url: HttpUrl
-    ors_api_key: SecretStr
     amap_api_key: SecretStr
     model_name: str = Field(default="qwen-plus", min_length=1)
     place_proxy_url: HttpUrl | None = None

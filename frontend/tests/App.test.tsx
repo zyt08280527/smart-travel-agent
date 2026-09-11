@@ -102,6 +102,53 @@ describe('App streaming chat', () => {
     })
   })
 
+  test('renders traffic-aware driving details from a route card', async () => {
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      const events: AgentStreamEvent[] = [
+        { type: 'run_started', thread_id: 'thread-driving' },
+        {
+          type: 'result_card',
+          thread_id: 'thread-driving',
+          card: {
+            type: 'route',
+            mode: 'driving',
+            distance_m: 14869,
+            duration_s: 1687,
+            duration_basis: 'traffic_aware_estimate',
+            tolls_yuan: 0,
+            taxi_cost_yuan: 38,
+            traffic_lights: 4,
+            restriction: 0,
+            traffic_status_counts: { 畅通: 115, 缓行: 6 },
+            step_count: 20,
+            attribution: '驾车路线数据来源：高德地图 Web服务 API',
+          },
+        },
+        {
+          type: 'final',
+          thread_id: 'thread-driving',
+          answer: '已完成驾车路线规划。',
+        },
+        { type: 'done', thread_id: 'thread-driving' },
+      ]
+      for (const event of events) {
+        onEvent(event)
+      }
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('后端已连接，当前加载 1 个 Agent 工具。')
+    await user.type(screen.getByLabelText('输入你的出行问题'), '规划驾车路线')
+    await user.click(screen.getByRole('button', { name: '发送问题' }))
+
+    expect(await screen.findByText('交通感知预计时长')).toBeInTheDocument()
+    expect(screen.getByText('¥38.00')).toBeInTheDocument()
+    expect(screen.getByText(/查询时路况/)).toHaveTextContent(
+      '畅通 115 段 · 缓行 6 段',
+    )
+  })
+
   test.each([
     {
       decision: 'approve' as const,

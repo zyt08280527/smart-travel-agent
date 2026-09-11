@@ -1,6 +1,7 @@
 """Capture external HTTP request metrics without logging secrets."""
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -28,6 +29,12 @@ _request_collector: ContextVar[list[ExternalHttpRequest] | None] = ContextVar(
     "external_http_request_collector",
     default=None,
 )
+
+
+def configure_safe_http_logging() -> None:
+    """Keep third-party URLs and query credentials out of process logs."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 @contextmanager

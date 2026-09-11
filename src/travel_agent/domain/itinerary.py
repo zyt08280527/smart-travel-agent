@@ -13,9 +13,10 @@ class ItineraryDraft(BaseModel):
     travel_mode: Literal["driving", "walking", "transit"]
     distance_m: float = Field(ge=0)
     duration_s: float = Field(ge=0)
-    duration_basis: Literal["static_without_live_traffic"] = (
-        "static_without_live_traffic"
-    )
+    duration_basis: Literal[
+        "static_without_live_traffic",
+        "traffic_aware_estimate",
+    ] = "static_without_live_traffic"
     notes: str | None = Field(default=None, max_length=1000)
 
 

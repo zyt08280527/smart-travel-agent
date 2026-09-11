@@ -8,7 +8,6 @@ def test_settings_validate_values_and_hide_secret() -> None:
         _env_file=None,
         dashscope_api_key="sk-test-only",
         dashscope_base_url="https://example.com/compatible-mode/v1",
-        ors_api_key="ors-test-only",
         amap_api_key="amap-test-only",
     )
 
@@ -21,8 +20,6 @@ def test_settings_validate_values_and_hide_secret() -> None:
     )
     assert str(settings.dashscope_api_key) == "**********"
     assert settings.dashscope_api_key.get_secret_value() == "sk-test-only"
-    assert str(settings.ors_api_key) == "**********"
-    assert settings.ors_api_key.get_secret_value() == "ors-test-only"
     assert str(settings.amap_api_key) == "**********"
     assert settings.amap_api_key.get_secret_value() == "amap-test-only"
     assert str(settings.dashscope_base_url).startswith("https://example.com/")

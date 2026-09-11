@@ -23,6 +23,7 @@ class EvalCase(BaseModel):
     expected_args: dict[str, object] = Field(default_factory=dict)
     expected_tool_sequence: tuple[str, ...] = ()
     route_tool_from_endpoints: str | None = None
+    planning_tool_from_endpoints: str | None = None
     expect_tool_error: bool = False
     required_final_substrings: tuple[str, ...] = ()
     forbidden_final_substrings: tuple[str, ...] = ()
@@ -43,6 +44,17 @@ class EvalCase(BaseModel):
             not in self.expected_tool_sequence
         ):
             raise ValueError("路线工具必须出现在 expected_tool_sequence 中")
+        if (
+            self.planning_tool_from_endpoints is not None
+            and self.planning_tool_from_endpoints
+            not in self.expected_tool_sequence
+        ):
+            raise ValueError("综合规划工具必须出现在 expected_tool_sequence 中")
+        if (
+            self.route_tool_from_endpoints is not None
+            and self.planning_tool_from_endpoints is not None
+        ):
+            raise ValueError("单一路线工具与综合规划工具不能同时声明")
         return self
 
 

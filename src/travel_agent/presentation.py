@@ -58,6 +58,7 @@ ATTRIBUTION_TOOL_NAMES = {
     "plan_driving_route",
     "plan_walking_route",
     "plan_transit_route",
+    "recommend_travel_plan",
 }
 
 
@@ -76,6 +77,7 @@ def _apply_capability_policy(
     *,
     transit_cost_unknown: bool = False,
     transit_route_used: bool = False,
+    driving_traffic_available: bool = False,
 ) -> str:
     """Remove unsupported capability lines and append a deterministic notice."""
     kept_lines: list[str] = []
@@ -101,7 +103,10 @@ def _apply_capability_policy(
         ):
             removed_uv_claim = True
             continue
-        if any(term in line for term in LIVE_TRAFFIC_CLAIM_TERMS):
+        if (
+            not driving_traffic_available
+            and any(term in line for term in LIVE_TRAFFIC_CLAIM_TERMS)
+        ):
             removed_traffic_claim = True
             continue
         if (
@@ -185,6 +190,31 @@ def _uses_tool(messages: list[object], tool_name: str) -> bool:
     )
 
 
+def _planning_options(messages: list[object]) -> list[dict[str, object]]:
+    """Extract normalized options nested in composite planning results."""
+    options: list[dict[str, object]] = []
+    for message in messages:
+        if (
+            not isinstance(message, ToolMessage)
+            or message.name != "recommend_travel_plan"
+        ):
+            continue
+        for payload in _tool_json_payloads(message):
+            recommendation = payload.get("recommendation")
+            if not isinstance(recommendation, dict):
+                continue
+            ranked = recommendation.get("ranked_options")
+            if not isinstance(ranked, list):
+                continue
+            for scored in ranked:
+                if not isinstance(scored, dict):
+                    continue
+                option = scored.get("option")
+                if isinstance(option, dict):
+                    options.append(option)
+    return options
+
+
 def _transit_cost_is_unknown(messages: list[object]) -> bool:
     """Return whether a transit result explicitly omits every option's cost."""
     for message in messages:
@@ -201,7 +231,212 @@ def _transit_cost_is_unknown(messages: list[object]) -> bool:
             ]
             if costs and all(cost is None for cost in costs):
                 return True
-    return False
+    transit_options = [
+        option
+        for option in _planning_options(messages)
+        if option.get("mode") == "transit"
+    ]
+    return bool(transit_options) and all(
+        option.get("cost_yuan") is None for option in transit_options
+    )
+
+
+def _driving_traffic_is_available(messages: list[object]) -> bool:
+    """Return whether the driving result contains provider traffic segments."""
+    for message in messages:
+        if not isinstance(message, ToolMessage) or message.name != "plan_driving_route":
+            continue
+        for payload in _tool_json_payloads(message):
+            segments = payload.get("traffic_segments")
+            if (
+                payload.get("duration_basis") == "traffic_aware_estimate"
+                and isinstance(segments, list)
+                and segments
+            ):
+                return True
+    return any(
+        option.get("mode") == "driving"
+        and option.get("duration_basis") == "traffic_aware_estimate"
+        and isinstance(option.get("traffic_status_counts"), dict)
+        and bool(option["traffic_status_counts"])
+        for option in _planning_options(messages)
+    )
+
+
+def _collect_attributions(value: object) -> list[str]:
+    """Collect unique attribution values from nested provider payloads."""
+    collected: list[str] = []
+    if isinstance(value, dict):
+        attribution = value.get("attribution")
+        if isinstance(attribution, str) and attribution:
+            collected.append(attribution)
+        for nested in value.values():
+            for item in _collect_attributions(nested):
+                if item not in collected:
+                    collected.append(item)
+    elif isinstance(value, list):
+        for nested in value:
+            for item in _collect_attributions(nested):
+                if item not in collected:
+                    collected.append(item)
+    return collected
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _latest_planning_payload(
+    messages: list[object],
+) -> dict[str, object] | None:
+    for message in reversed(messages):
+        if (
+            not isinstance(message, ToolMessage)
+            or message.name != "recommend_travel_plan"
+        ):
+            continue
+        payloads = _tool_json_payloads(message)
+        if payloads and payloads[-1].get("ok") is not False:
+            return payloads[-1]
+    return None
+
+
+def _route_summary_line(scored: object) -> str | None:
+    if not isinstance(scored, dict):
+        return None
+    option = scored.get("option")
+    scores = scored.get("scores")
+    if not isinstance(option, dict) or not isinstance(scores, dict):
+        return None
+    mode = option.get("mode")
+    mode_names = {"driving": "驾车", "transit": "公共交通", "walking": "步行"}
+    mode_name = mode_names.get(mode)
+    distance = _number(option.get("distance_m"))
+    duration = _number(option.get("duration_s"))
+    total = _number(scores.get("total"))
+    if mode_name is None or distance is None or duration is None or total is None:
+        return None
+
+    details = [
+        f"{distance / 1000:.1f} 公里",
+        f"约 {round(duration / 60)} 分钟",
+        f"综合得分 {total:.1f}",
+    ]
+    if mode == "driving":
+        tolls = _number(option.get("tolls_yuan"))
+        taxi_cost = _number(option.get("taxi_cost_yuan"))
+        if tolls is not None:
+            details.append(f"道路通行费 {tolls:g} 元")
+        if taxi_cost is not None:
+            details.append(f"出租车估价 {taxi_cost:g} 元")
+        traffic_counts = option.get("traffic_status_counts")
+        if isinstance(traffic_counts, dict) and traffic_counts:
+            traffic_text = "、".join(
+                f"{status}{count}段"
+                for status, count in traffic_counts.items()
+                if isinstance(status, str) and isinstance(count, int)
+            )
+            if traffic_text:
+                details.append(f"查询时路况分段：{traffic_text}")
+    elif mode == "transit":
+        walking = _number(option.get("walking_distance_m"))
+        transfers = option.get("transfer_count")
+        cost = _number(option.get("cost_yuan"))
+        if walking is not None:
+            details.append(f"接驳步行 {walking:.0f} 米")
+        if isinstance(transfers, int):
+            details.append(f"换乘 {transfers} 次")
+        details.append(
+            f"票价 {cost:g} 元" if cost is not None else "票价未提供"
+        )
+    return f"- {mode_name}：{'；'.join(details)}"
+
+
+def _render_planning_payload(payload: dict[str, object]) -> str | None:
+    context = payload.get("context")
+    recommendation = payload.get("recommendation")
+    if not isinstance(context, dict) or not isinstance(recommendation, dict):
+        return None
+    origin = context.get("origin_name")
+    destination = context.get("destination_name")
+    ranked = recommendation.get("ranked_options")
+    recommended_mode = recommendation.get("recommended_mode")
+    if (
+        not isinstance(origin, str)
+        or not isinstance(destination, str)
+        or not isinstance(ranked, list)
+        or not ranked
+        or recommended_mode not in {"driving", "transit", "walking"}
+    ):
+        return None
+
+    mode_names = {"driving": "驾车", "transit": "公共交通", "walking": "步行"}
+    lines = [
+        f"{origin} → {destination} 出行比较",
+        "",
+    ]
+    weather = context.get("weather")
+    if isinstance(weather, dict):
+        temperature = _number(weather.get("temperature_c"))
+        apparent = _number(weather.get("apparent_temperature_c"))
+        precipitation = _number(weather.get("precipitation_mm"))
+        wind = _number(weather.get("wind_speed_kmh"))
+        condition = weather.get("condition")
+        weather_parts: list[str] = []
+        if isinstance(condition, str):
+            weather_parts.append(condition)
+        if temperature is not None:
+            weather_parts.append(f"实际温度 {temperature:g}℃")
+        if apparent is not None:
+            weather_parts.append(f"体感温度 {apparent:g}℃")
+        if precipitation is not None:
+            weather_parts.append(f"降水 {precipitation:g} 毫米")
+        if wind is not None:
+            weather_parts.append(f"风速 {wind:g} km/h")
+        if weather_parts:
+            lines.extend([f"当前天气：{'，'.join(weather_parts)}。", ""])
+
+    confidence = _number(recommendation.get("confidence"))
+    recommendation_text = f"推荐方式：{mode_names[recommended_mode]}"
+    if confidence is not None:
+        recommendation_text += f"（推荐区分度 {confidence * 100:.1f}%）"
+    lines.extend([recommendation_text, "", "方案对比："])
+    lines.extend(
+        line for scored in ranked if (line := _route_summary_line(scored))
+    )
+
+    limitations = recommendation.get("limitations")
+    if isinstance(limitations, list):
+        valid_limitations = [item for item in limitations if isinstance(item, str)]
+        if valid_limitations:
+            lines.extend(["", "数据限制："])
+            mode_labels = {
+                "driving 方案": "驾车方案",
+                "transit 方案": "公共交通方案",
+                "walking 方案": "步行方案",
+            }
+            lines.extend(
+                "- "
+                + next(
+                    (
+                        item.replace(raw, label, 1)
+                        for raw, label in mode_labels.items()
+                        if item.startswith(raw)
+                    ),
+                    item,
+                )
+                for item in valid_limitations
+            )
+    lines.extend(
+        [
+            "",
+            "驾车时长与路况是查询时快照；步行和公共交通为静态预计，"
+            "出发前请通过实时导航再次确认。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def render_user_response(messages: list[object]) -> str:
@@ -217,12 +452,24 @@ def render_user_response(messages: list[object]) -> str:
         raise ValueError("Agent 未生成最终回答")
 
     current_turn_messages = _current_turn_messages(messages)
-    answer = _apply_capability_policy(
+    planning_payload = _latest_planning_payload(current_turn_messages)
+    deterministic_planning_answer = (
+        _render_planning_payload(planning_payload)
+        if planning_payload is not None
+        else None
+    )
+    answer = deterministic_planning_answer or _apply_capability_policy(
         final_answers[-1],
         transit_cost_unknown=_transit_cost_is_unknown(current_turn_messages),
-        transit_route_used=_uses_tool(
-            current_turn_messages,
-            "plan_transit_route",
+        transit_route_used=(
+            _uses_tool(current_turn_messages, "plan_transit_route")
+            or any(
+                option.get("mode") == "transit"
+                for option in _planning_options(current_turn_messages)
+            )
+        ),
+        driving_traffic_available=_driving_traffic_is_available(
+            current_turn_messages
         ),
     )
     attributions: list[str] = []
@@ -233,13 +480,9 @@ def render_user_response(messages: list[object]) -> str:
         ):
             continue
         for payload in _tool_json_payloads(message):
-            attribution = payload.get("attribution")
-            if (
-                isinstance(attribution, str)
-                and attribution
-                and attribution not in attributions
-            ):
-                attributions.append(attribution)
+            for attribution in _collect_attributions(payload):
+                if attribution not in attributions:
+                    attributions.append(attribution)
 
     missing_attributions = [
         attribution for attribution in attributions if attribution not in answer

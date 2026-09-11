@@ -209,6 +209,47 @@ def test_route_tool_result_becomes_safe_structured_card(
     assert card.step_count == 61
 
 
+def test_driving_route_card_exposes_traffic_and_cost_summary() -> None:
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=(
+                                '{"mode":"driving","distance_m":14869,'
+                                '"duration_s":1687,'
+                                '"duration_basis":"traffic_aware_estimate",'
+                                '"tolls_yuan":0,"taxi_cost_yuan":38,'
+                                '"traffic_lights":4,"restriction":0,'
+                                '"traffic_segments":['
+                                '{"status":"畅通","distance_m":1000},'
+                                '{"status":"畅通","distance_m":800},'
+                                '{"status":"缓行","distance_m":200}],'
+                                '"steps":[],"step_count":20,'
+                                '"attribution":"高德地图 Web服务 API"}'
+                            ),
+                            name="plan_driving_route",
+                            tool_call_id="call_driving",
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    card = events[1].card
+    assert card is not None
+    assert card.type == "route"
+    assert card.duration_basis == "traffic_aware_estimate"
+    assert card.tolls_yuan == 0
+    assert card.taxi_cost_yuan == 38
+    assert card.traffic_lights == 4
+    assert card.traffic_status_counts == {"畅通": 2, "缓行": 1}
+
+
 def test_transit_tool_result_becomes_safe_structured_card() -> None:
     events = normalize_stream_part(
         {
