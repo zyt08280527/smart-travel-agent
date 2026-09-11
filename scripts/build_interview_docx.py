@@ -5,13 +5,11 @@ from datetime import date
 from pathlib import Path
 
 from docx import Document
-from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "resume-and-interview.md"
@@ -36,7 +34,9 @@ def set_cell_shading(cell, fill: str) -> None:
     shd.set(qn("w:fill"), fill)
 
 
-def set_cell_margins(cell, top: int = 100, start: int = 120, bottom: int = 100, end: int = 120) -> None:
+def set_cell_margins(
+    cell, top: int = 100, start: int = 120, bottom: int = 100, end: int = 120
+) -> None:
     tc = cell._tc
     tc_pr = tc.get_or_add_tcPr()
     tc_mar = tc_pr.first_child_found_in("w:tcMar")
@@ -99,9 +99,15 @@ def set_table_geometry(table, widths_dxa: list[int], indent_dxa: int = 120) -> N
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
 
-def set_run_font(run, size: float | None = None, bold: bool | None = None,
-                 color: str | None = None, italic: bool | None = None,
-                 font: str = "Calibri", east_asia: str = "Microsoft YaHei") -> None:
+def set_run_font(
+    run,
+    size: float | None = None,
+    bold: bool | None = None,
+    color: str | None = None,
+    italic: bool | None = None,
+    font: str = "Calibri",
+    east_asia: str = "Microsoft YaHei",
+) -> None:
     run.font.name = font
     run._element.get_or_add_rPr().rFonts.set(qn("w:ascii"), font)
     run._element.get_or_add_rPr().rFonts.set(qn("w:hAnsi"), font)
@@ -121,14 +127,16 @@ def add_inline(paragraph, text: str) -> None:
     cursor = 0
     for match in token_re.finditer(text):
         if match.start() > cursor:
-            set_run_font(paragraph.add_run(text[cursor:match.start()]), color=BLACK)
+            set_run_font(paragraph.add_run(text[cursor : match.start()]), color=BLACK)
         token = match.group(0)
         if token.startswith("**"):
             run = paragraph.add_run(token[2:-2])
             set_run_font(run, bold=True, color=NAVY)
         elif token.startswith("`"):
             run = paragraph.add_run(token[1:-1])
-            set_run_font(run, size=9.5, color=DARK_BLUE, font="Consolas", east_asia="Microsoft YaHei")
+            set_run_font(
+                run, size=9.5, color=DARK_BLUE, font="Consolas", east_asia="Microsoft YaHei"
+            )
             run.font.highlight_color = None
         else:
             url = token[1:-1]
@@ -231,7 +239,11 @@ def add_cover(doc: Document) -> None:
     subtitle = doc.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     subtitle.paragraph_format.space_after = Pt(30)
-    set_run_font(subtitle.add_run("智能出行 Agent · RAG 文档知识库 · 电动汽车充电需求研究"), size=12.5, color=MUTED)
+    set_run_font(
+        subtitle.add_run("智能出行 Agent · RAG 文档知识库 · 电动汽车充电需求研究"),
+        size=12.5,
+        color=MUTED,
+    )
 
     table = doc.add_table(rows=1, cols=3)
     set_table_geometry(table, [3120, 3120, 3120], indent_dxa=0)
@@ -263,7 +275,12 @@ def add_cover(doc: Document) -> None:
 def add_static_toc(doc: Document) -> None:
     doc.add_heading("使用说明与内容导航", level=1)
     lead = doc.add_paragraph()
-    add_inline(lead, "建议先熟练掌握 **30 秒自我介绍** 和 **为什么用—怎么用—有什么好处** 三段式框架，再按岗位重点复习对应项目。")
+    add_inline(
+        lead,
+        "建议先熟练掌握 **30 秒自我介绍** 和"
+        " **为什么用—怎么用—有什么好处** 三段式框架，"
+        "再按岗位重点复习对应项目。",
+    )
 
     items = [
         ("01", "自我介绍与 Agent 项目介绍", "建立开场表达"),
