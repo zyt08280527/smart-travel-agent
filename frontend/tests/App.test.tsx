@@ -185,6 +185,74 @@ describe('App streaming chat', () => {
                 transfer_count: 0,
               },
             ],
+            recommendation_variants: [
+              {
+                priority: 'balanced',
+                recommended_mode: 'transit',
+                ranked_options: [
+                  {
+                    mode: 'transit',
+                    total_score: 80,
+                    duration_s: 2700,
+                    cost_yuan: 5,
+                    walking_distance_m: 800,
+                    transfer_count: 1,
+                  },
+                  {
+                    mode: 'walking',
+                    total_score: 45,
+                    duration_s: 9000,
+                    cost_yuan: 0,
+                    walking_distance_m: 12500,
+                    transfer_count: 0,
+                  },
+                ],
+              },
+              {
+                priority: 'cheapest',
+                recommended_mode: 'transit',
+                ranked_options: [
+                  {
+                    mode: 'transit',
+                    total_score: 84,
+                    duration_s: 2700,
+                    cost_yuan: 5,
+                    walking_distance_m: 800,
+                    transfer_count: 1,
+                  },
+                  {
+                    mode: 'walking',
+                    total_score: 38,
+                    duration_s: 9000,
+                    cost_yuan: 0,
+                    walking_distance_m: 12500,
+                    transfer_count: 0,
+                  },
+                ],
+              },
+              {
+                priority: 'fewest_transfers',
+                recommended_mode: 'walking',
+                ranked_options: [
+                  {
+                    mode: 'walking',
+                    total_score: 89,
+                    duration_s: 9000,
+                    cost_yuan: 0,
+                    walking_distance_m: 12500,
+                    transfer_count: 0,
+                  },
+                  {
+                    mode: 'transit',
+                    total_score: 70,
+                    duration_s: 2700,
+                    cost_yuan: 5,
+                    walking_distance_m: 800,
+                    transfer_count: 1,
+                  },
+                ],
+              },
+            ],
             unavailable_options: [
               {
                 mode: 'driving',
@@ -213,12 +281,19 @@ describe('App streaming chat', () => {
 
     expect(await screen.findByText('本地重新评分')).toBeInTheDocument()
     expect(screen.getByText('驾车 → 公共交通')).toBeInTheDocument()
-    expect(screen.getByText('优先省钱')).toBeInTheDocument()
+    expect(screen.getAllByText('优先省钱')).toHaveLength(2)
     expect(screen.getByText('不能驾车')).toBeInTheDocument()
     expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
     expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '优先少换乘' }))
+    expect(screen.getByText('该偏好推荐')).toBeInTheDocument()
+    expect(screen.getByText('步行')).toBeInTheDocument()
+    expect(screen.getByText('1. 步行')).toBeInTheDocument()
+    expect(screen.getByText('费用 0 元 · 步行 12.5 公里 · 换乘 0 次'))
+      .toBeInTheDocument()
   })
 
   test.each([

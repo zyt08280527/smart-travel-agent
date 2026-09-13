@@ -15,7 +15,10 @@ from travel_agent.domain.weather import WeatherData
 from travel_agent.services.amap_driving import AmapDrivingRouteService
 from travel_agent.services.amap_walking import AmapWalkingRouteService
 from travel_agent.services.transit import TransitService
-from travel_agent.services.travel_decision import recommend_travel_mode
+from travel_agent.services.travel_decision import (
+    recommend_travel_mode,
+    recommend_travel_variants,
+)
 from travel_agent.services.weather import WeatherService
 
 
@@ -84,6 +87,11 @@ class TravelPlanningService:
             preferences,
             weather=weather,
         )
+        recommendation_variants = recommend_travel_variants(
+            options,
+            preferences,
+            weather=weather,
+        )
         if isinstance(weather_result, Exception):
             recommendation = recommendation.model_copy(
                 update={
@@ -131,6 +139,7 @@ class TravelPlanningService:
                 preferences=preferences,
             ),
             recommendation=recommendation,
+            recommendation_variants=recommendation_variants,
         )
 
     @staticmethod

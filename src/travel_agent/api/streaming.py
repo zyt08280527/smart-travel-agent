@@ -14,6 +14,7 @@ from travel_agent.api.schemas import (
     PlanningOptionCard,
     PlanningPreferenceCard,
     PlanningResultCard,
+    PlanningVariantCard,
     RouteResultCard,
     TransitResultCard,
     WeatherResultCard,
@@ -219,29 +220,59 @@ def _planning_card_from_payload(
         return None
     preferences = context.get("preferences")
     ranked = recommendation.get("ranked_options")
+    variants = payload.get("recommendation_variants", [])
     unavailable = recommendation.get("unavailable_options", [])
     if not isinstance(preferences, dict) or not isinstance(ranked, list):
+        return None
+    if not isinstance(variants, list):
         return None
     if not isinstance(unavailable, list):
         return None
 
-    ranked_cards: list[PlanningOptionCard] = []
-    excluded_cards: list[PlanningExcludedOptionCard] = []
-    try:
-        for scored in ranked:
+    def ranked_cards_from(raw_ranked: list[object]) -> list[PlanningOptionCard]:
+        cards: list[PlanningOptionCard] = []
+        for scored in raw_ranked:
             if not isinstance(scored, dict):
                 continue
             option = scored.get("option")
             scores = scored.get("scores")
             if not isinstance(option, dict) or not isinstance(scores, dict):
                 continue
-            ranked_cards.append(
+            cards.append(
                 PlanningOptionCard(
                     mode=option["mode"],
                     total_score=scores["total"],
                     duration_s=option["duration_s"],
+                    cost_yuan=option.get("cost_yuan"),
                     walking_distance_m=option.get("walking_distance_m"),
                     transfer_count=option.get("transfer_count"),
+                )
+            )
+        return cards
+
+    excluded_cards: list[PlanningExcludedOptionCard] = []
+    try:
+        ranked_cards = ranked_cards_from(ranked)
+        variant_cards: list[PlanningVariantCard] = []
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            variant_ranked = variant.get("ranked_options")
+            if not isinstance(variant_ranked, list):
+                continue
+            variant_cards.append(
+                PlanningVariantCard(
+                    priority=variant["priority"],
+                    recommended_mode=variant["recommended_mode"],
+                    ranked_options=ranked_cards_from(variant_ranked),
+                )
+            )
+        if not variant_cards:
+            variant_cards.append(
+                PlanningVariantCard(
+                    priority=preferences["priority"],
+                    recommended_mode=recommendation["recommended_mode"],
+                    ranked_options=ranked_cards,
                 )
             )
         for option in unavailable:
@@ -265,6 +296,7 @@ def _planning_card_from_payload(
             reused_previous_data=reused_previous_data,
             preferences=PlanningPreferenceCard.model_validate(preferences),
             ranked_options=ranked_cards,
+            recommendation_variants=variant_cards,
             unavailable_options=excluded_cards,
         )
     except (KeyError, TypeError, ValidationError):

@@ -125,6 +125,7 @@ class PlanningOptionCard(BaseModel):
     mode: Literal["driving", "walking", "transit"]
     total_score: float = Field(ge=0, le=100)
     duration_s: float = Field(ge=0)
+    cost_yuan: float | None = Field(default=None, ge=0)
     walking_distance_m: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
 
@@ -134,6 +135,20 @@ class PlanningExcludedOptionCard(BaseModel):
 
     mode: Literal["driving", "walking", "transit"]
     reason: str = Field(min_length=1)
+
+
+class PlanningVariantCard(BaseModel):
+    """One soft-priority view over the same route and weather snapshot."""
+
+    priority: Literal[
+        "balanced",
+        "fastest",
+        "cheapest",
+        "least_walking",
+        "fewest_transfers",
+    ]
+    recommended_mode: Literal["driving", "walking", "transit"]
+    ranked_options: list[PlanningOptionCard] = Field(min_length=1)
 
 
 class PlanningResultCard(BaseModel):
@@ -147,6 +162,7 @@ class PlanningResultCard(BaseModel):
     reused_previous_data: bool = False
     preferences: PlanningPreferenceCard
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
+    recommendation_variants: list[PlanningVariantCard] = Field(default_factory=list)
     unavailable_options: list[PlanningExcludedOptionCard] = Field(default_factory=list)
 
 

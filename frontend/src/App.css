@@ -422,6 +422,40 @@ button:disabled {
   font-size: 12px;
 }
 
+.planning-variant-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.planning-variant-tabs button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.planning-variant-tabs button:hover {
+  border-color: var(--accent-border);
+  color: var(--text-h);
+}
+
+.planning-variant-tabs button.active {
+  border-color: var(--accent);
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
+.planning-variant-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .planning-ranking {
   display: grid;
   gap: 8px;

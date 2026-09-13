@@ -116,8 +116,25 @@ class TravelRecommendation(BaseModel):
         return self
 
 
+class TravelRecommendationVariant(BaseModel):
+    """One deterministic ranking generated from the same provider snapshot."""
+
+    priority: TravelPriority
+    recommended_mode: TravelMode
+    ranked_options: list[ScoredTravelOption] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def recommended_mode_must_rank_first(self) -> "TravelRecommendationVariant":
+        if self.recommended_mode != self.ranked_options[0].option.mode:
+            raise ValueError("recommended_mode must match the first ranked option")
+        return self
+
+
 class TravelComparisonResult(BaseModel):
     """Weather context plus the ranked result of a multi-mode comparison."""
 
     context: JourneyContext
     recommendation: TravelRecommendation
+    recommendation_variants: list[TravelRecommendationVariant] = Field(
+        default_factory=list
+    )

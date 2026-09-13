@@ -3,8 +3,10 @@ import pytest
 from travel_agent.domain.decision import TravelOption, TravelPreferences
 from travel_agent.domain.weather import CurrentWeather, ForecastWeather, Location
 from travel_agent.services.travel_decision import (
+    RECOMMENDATION_VARIANT_PRIORITIES,
     TravelDecisionError,
     recommend_travel_mode,
+    recommend_travel_variants,
 )
 
 
@@ -102,7 +104,26 @@ def test_cheapest_priority_recommends_walking() -> None:
     assert result.recommended_mode == "walking"
 
 
-def test_missing_cost_is_neutral_instead_of_becoming_free() -> None:
+def test_recommendation_variants_reuse_constraints_for_every_priority() -> None:
+    variants = recommend_travel_variants(
+        build_options(),
+        TravelPreferences(can_drive=False),
+        weather=build_weather(),
+    )
+
+    assert [variant.priority for variant in variants] == list(
+        RECOMMENDATION_VARIANT_PRIORITIES
+    )
+    assert len(variants) == 5
+    assert all(
+        scored.option.mode != "driving"
+        for variant in variants
+        for scored in variant.ranked_options
+    )
+    assert variants[0].recommended_mode == variants[0].ranked_options[0].option.mode
+
+
+def test_missing_cost_is_penalized_when_cost_is_the_primary_priority() -> None:
     options = build_options()
     options[1] = options[1].model_copy(update={"cost_yuan": None})
 
@@ -114,8 +135,20 @@ def test_missing_cost_is_neutral_instead_of_becoming_free() -> None:
     transit = next(
         item for item in result.ranked_options if item.option.mode == "transit"
     )
-    assert transit.scores.cost == 50
+    assert transit.scores.cost == 0
     assert "transit 方案缺少费用数据" in result.limitations
+
+
+def test_missing_cost_remains_neutral_for_balanced_recommendations() -> None:
+    options = build_options()
+    options[1] = options[1].model_copy(update={"cost_yuan": None})
+
+    result = recommend_travel_mode(options)
+
+    transit = next(
+        item for item in result.ranked_options if item.option.mode == "transit"
+    )
+    assert transit.scores.cost == 50
 
 
 def test_failed_option_is_preserved_but_not_scored() -> None:

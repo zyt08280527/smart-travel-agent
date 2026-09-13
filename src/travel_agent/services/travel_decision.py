@@ -7,6 +7,7 @@ from travel_agent.domain.decision import (
     TravelPreferences,
     TravelPriority,
     TravelRecommendation,
+    TravelRecommendationVariant,
 )
 from travel_agent.domain.weather import ForecastWeather, WeatherData
 
@@ -49,6 +50,14 @@ PRIORITY_WEIGHTS: dict[TravelPriority, dict[str, float]] = {
         "weather_fit": 0.16,
     },
 }
+
+RECOMMENDATION_VARIANT_PRIORITIES: tuple[TravelPriority, ...] = (
+    "balanced",
+    "fastest",
+    "cheapest",
+    "least_walking",
+    "fewest_transfers",
+)
 
 
 class TravelDecisionError(ValueError):
@@ -137,19 +146,21 @@ def _apply_hard_constraints(
 def _lower_is_better_scores(
     options: list[TravelOption],
     getter: MetricGetter,
+    *,
+    missing_score: float = 50.0,
 ) -> dict[int, float]:
     """Normalize one metric to 0-100 without treating missing data as zero."""
     values = [getter(option) for option in options]
     known_values = [value for value in values if value is not None]
     if not known_values:
-        return {index: 50.0 for index in range(len(options))}
+        return {index: missing_score for index in range(len(options))}
 
     minimum = min(known_values)
     maximum = max(known_values)
     scores: dict[int, float] = {}
     for index, value in enumerate(values):
         if value is None:
-            scores[index] = 50.0
+            scores[index] = missing_score
         elif maximum == minimum:
             scores[index] = 100.0
         else:
@@ -256,7 +267,11 @@ def recommend_travel_mode(
 
     metric_scores = {
         "time": _lower_is_better_scores(available, lambda item: item.duration_s),
-        "cost": _lower_is_better_scores(available, lambda item: item.cost_yuan),
+        "cost": _lower_is_better_scores(
+            available,
+            lambda item: item.cost_yuan,
+            missing_score=0.0 if preferences.priority == "cheapest" else 50.0,
+        ),
         "walking": _lower_is_better_scores(available, _walking_distance),
         "transfers": _lower_is_better_scores(available, _transfer_count),
     }
@@ -314,3 +329,28 @@ def recommend_travel_mode(
         ],
         limitations=list(dict.fromkeys(limitations)),
     )
+
+
+def recommend_travel_variants(
+    options: list[TravelOption],
+    preferences: TravelPreferences | None = None,
+    weather: WeatherData | None = None,
+) -> list[TravelRecommendationVariant]:
+    """Rank one provider snapshot under every supported soft priority."""
+    preferences = preferences or TravelPreferences()
+    variants: list[TravelRecommendationVariant] = []
+    for priority in RECOMMENDATION_VARIANT_PRIORITIES:
+        variant_preferences = preferences.model_copy(update={"priority": priority})
+        recommendation = recommend_travel_mode(
+            options,
+            variant_preferences,
+            weather=weather,
+        )
+        variants.append(
+            TravelRecommendationVariant(
+                priority=priority,
+                recommended_mode=recommendation.recommended_mode,
+                ranked_options=recommendation.ranked_options,
+            )
+        )
+    return variants

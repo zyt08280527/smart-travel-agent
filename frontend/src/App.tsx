@@ -310,6 +310,19 @@ const PRIORITY_LABELS = {
 }
 
 function PlanningCard({ card }: { card: PlanningResultCard }) {
+  const availableVariants = card.recommendation_variants?.length
+    ? card.recommendation_variants
+    : [{
+        priority: card.preferences.priority,
+        recommended_mode: card.recommended_mode,
+        ranked_options: card.ranked_options,
+      }]
+  const [selectedPriority, setSelectedPriority] = useState(
+    card.preferences.priority,
+  )
+  const selectedVariant = availableVariants.find(
+    (variant) => variant.priority === selectedPriority,
+  ) ?? availableVariants[0]
   const preferenceLabels = [PRIORITY_LABELS[card.preferences.priority]]
   if (card.preferences.can_drive === false) {
     preferenceLabels.push('不能驾车')
@@ -329,6 +342,8 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
     ? null
     : MODE_LABELS[card.previous_recommended_mode]
   const recommendationChanged =
+    selectedPriority === card.preferences.priority
+    &&
     previousModeLabel != null
     && card.previous_recommended_mode !== card.recommended_mode
 
@@ -353,10 +368,28 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
           </>
         ) : (
           <>
-            <span>当前推荐</span>
-            <strong>{MODE_LABELS[card.recommended_mode]}</strong>
+            <span>
+              {selectedPriority === card.preferences.priority
+                ? '当前推荐'
+                : '该偏好推荐'}
+            </span>
+            <strong>{MODE_LABELS[selectedVariant.recommended_mode]}</strong>
           </>
         )}
+      </div>
+
+      <div className="planning-variant-tabs" aria-label="切换推荐偏好">
+        {availableVariants.map((variant) => (
+          <button
+            type="button"
+            key={variant.priority}
+            className={variant.priority === selectedPriority ? 'active' : ''}
+            aria-pressed={variant.priority === selectedPriority}
+            onClick={() => setSelectedPriority(variant.priority)}
+          >
+            {PRIORITY_LABELS[variant.priority]}
+          </button>
+        ))}
       </div>
 
       <div className="planning-preferences" aria-label="当前偏好">
@@ -366,15 +399,22 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
       </div>
 
       <ol className="planning-ranking">
-        {card.ranked_options.map((option, index) => (
+        {selectedVariant.ranked_options.map((option, index) => (
           <li key={option.mode}>
             <strong>{index + 1}. {MODE_LABELS[option.mode]}</strong>
             <span>
               {option.total_score.toFixed(1)} 分 · {formatDuration(option.duration_s)}
             </span>
-            {(option.walking_distance_m != null
+            {(option.cost_yuan != null
+              || option.walking_distance_m != null
               || option.transfer_count != null) && (
               <small>
+                {option.cost_yuan != null
+                  ? `费用 ${option.cost_yuan.toFixed(0)} 元`
+                  : ''}
+                {option.cost_yuan != null
+                  && (option.walking_distance_m != null
+                    || option.transfer_count != null) ? ' · ' : ''}
                 {option.walking_distance_m != null
                   ? `步行 ${formatDistance(option.walking_distance_m)}`
                   : ''}

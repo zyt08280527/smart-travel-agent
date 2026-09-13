@@ -381,7 +381,18 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
                                 '{"option":{"mode":"transit",'
                                 '"duration_s":2700,"walking_distance_m":800,'
                                 '"transfer_count":1},"scores":{"total":77}}],'
-                                '"unavailable_options":[]}}'
+                                '"unavailable_options":[]},'
+                                '"recommendation_variants":['
+                                '{"priority":"balanced",'
+                                '"recommended_mode":"driving","ranked_options":['
+                                '{"option":{"mode":"driving",'
+                                '"duration_s":1800,"cost_yuan":20},'
+                                '"scores":{"total":82}}]},'
+                                '{"priority":"cheapest",'
+                                '"recommended_mode":"transit","ranked_options":['
+                                '{"option":{"mode":"transit",'
+                                '"duration_s":2700,"cost_yuan":5},'
+                                '"scores":{"total":91}}]}]}'
                             ),
                         )
                     ]
@@ -399,6 +410,12 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
     assert card.previous_recommended_mode is None
     assert card.reused_previous_data is False
     assert [option.mode for option in card.ranked_options] == ["driving", "transit"]
+    assert [variant.priority for variant in card.recommendation_variants] == [
+        "balanced",
+        "cheapest",
+    ]
+    assert card.recommendation_variants[1].recommended_mode == "transit"
+    assert card.recommendation_variants[1].ranked_options[0].cost_yuan == 5
 
 
 def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
@@ -433,6 +450,24 @@ def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
                 }
             ],
         },
+        "recommendation_variants": [
+            {
+                "priority": "cheapest",
+                "recommended_mode": "transit",
+                "ranked_options": [
+                    {
+                        "option": {
+                            "mode": "transit",
+                            "duration_s": 2700,
+                            "cost_yuan": 5,
+                            "walking_distance_m": 800,
+                            "transfer_count": 1,
+                        },
+                        "scores": {"total": 84},
+                    }
+                ],
+            }
+        ],
     }
     events = normalize_stream_part(
         {
@@ -465,4 +500,5 @@ def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
     assert card.recommended_mode == "transit"
     assert card.reused_previous_data is True
     assert card.preferences.can_drive is False
+    assert card.recommendation_variants[0].priority == "cheapest"
     assert card.unavailable_options[0].reason == "用户明确表示不能驾车"

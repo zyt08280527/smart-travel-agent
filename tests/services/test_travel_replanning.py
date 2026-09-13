@@ -108,3 +108,10 @@ def test_replan_excludes_driving_and_reuses_existing_facts() -> None:
     assert recommendation["unavailable_options"][0]["mode"] == "driving"
     assert "不能驾车" in recommendation["unavailable_options"][0]["failure_reason"]
     assert any("路线数据仍为查询时结果" in item for item in recommendation["limitations"])
+    variants = result["recommendation_variants"]
+    assert len(variants) == 5
+    assert all(
+        scored["option"]["mode"] != "driving"
+        for variant in variants
+        for scored in variant["ranked_options"]
+    )
