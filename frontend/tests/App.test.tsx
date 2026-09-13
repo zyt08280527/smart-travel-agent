@@ -149,6 +149,78 @@ describe('App streaming chat', () => {
     )
   })
 
+  test('renders preference changes and exclusions from a planning card', async () => {
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      const events: AgentStreamEvent[] = [
+        { type: 'run_started', thread_id: 'thread-replan' },
+        {
+          type: 'result_card',
+          thread_id: 'thread-replan',
+          card: {
+            type: 'planning',
+            origin_name: '粤海校区',
+            destination_name: '丽湖校区',
+            recommended_mode: 'transit',
+            previous_recommended_mode: 'driving',
+            reused_previous_data: true,
+            preferences: {
+              priority: 'cheapest',
+              can_drive: false,
+              max_walking_distance_m: 1000,
+              max_transfer_count: 1,
+            },
+            ranked_options: [
+              {
+                mode: 'transit',
+                total_score: 84,
+                duration_s: 2700,
+                walking_distance_m: 800,
+                transfer_count: 1,
+              },
+              {
+                mode: 'walking',
+                total_score: 38,
+                duration_s: 9000,
+                walking_distance_m: 12500,
+                transfer_count: 0,
+              },
+            ],
+            unavailable_options: [
+              {
+                mode: 'driving',
+                reason: '用户明确表示不能驾车',
+              },
+            ],
+          },
+        },
+        {
+          type: 'final',
+          thread_id: 'thread-replan',
+          answer: '已根据新约束重新推荐。',
+        },
+        { type: 'done', thread_id: 'thread-replan' },
+      ]
+      for (const event of events) {
+        onEvent(event)
+      }
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('后端已连接，当前加载 1 个 Agent 工具。')
+    await user.type(screen.getByLabelText('输入你的出行问题'), '如果不能开车呢')
+    await user.click(screen.getByRole('button', { name: '发送问题' }))
+
+    expect(await screen.findByText('本地重新评分')).toBeInTheDocument()
+    expect(screen.getByText('驾车 → 公共交通')).toBeInTheDocument()
+    expect(screen.getByText('优先省钱')).toBeInTheDocument()
+    expect(screen.getByText('不能驾车')).toBeInTheDocument()
+    expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
+    expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
+    expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
+    expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
+  })
+
   test.each([
     {
       decision: 'approve' as const,

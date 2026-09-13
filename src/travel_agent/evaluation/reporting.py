@@ -57,6 +57,13 @@ def measure_case(
     ai_messages = [
         message for message in messages if isinstance(message, AIMessage)
     ]
+    model_messages = [
+        message
+        for message in ai_messages
+        if message.tool_calls
+        or message.usage_metadata is not None
+        or bool(message.response_metadata)
+    ]
     input_tokens = 0
     output_tokens = 0
     total_tokens = 0
@@ -86,7 +93,7 @@ def measure_case(
     return EvalCaseMeasurement(
         result=result,
         latency_ms=latency_ms,
-        model_calls=len(ai_messages),
+        model_calls=len(model_messages),
         tool_calls=sum(len(message.tool_calls) for message in ai_messages),
         input_tokens=input_tokens,
         output_tokens=output_tokens,

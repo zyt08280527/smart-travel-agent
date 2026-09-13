@@ -20,7 +20,8 @@
       "message": "请务必调用实时天气工具查询城市\"火星市\"，不要只根据常识回答。",
       "expected_tool": "query_current_weather",
       "expected_args": {"city": "火星市"},
-      "expect_tool_error": true
+      "expect_tool_error": true,
+      "expected_tool_error_substrings": ["未找到城市"]
     },
     {
       "name": "place_search_is_grounded_and_attributed",
@@ -132,6 +133,333 @@
         "无需停车",
         "路线相对直接",
         "强烈推荐"
+      ]
+    },
+    {
+      "name": "future_exact_time_uses_forecast_in_composite_plan",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，比较三种出行方式并推荐一种。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "计划出发时间：",
+        "出发时段天气预报：",
+        "路线数据仍为查询时结果"
+      ],
+      "forbidden_final_substrings": ["当前天气："]
+    },
+    {
+      "name": "future_time_period_discloses_forecast_approximation",
+      "category": "route",
+      "message": "后天晚上从深圳大学粤海校区去深圳大学丽湖校区，帮我选合适的交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "后天晚上"
+      },
+      "required_final_substrings": [
+        "出发时段天气预报：",
+        "天气按 19:00 附近的逐小时预报估算"
+      ]
+    },
+    {
+      "name": "date_only_departure_requests_time_clarification",
+      "category": "route",
+      "message": "明天从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": null,
+      "required_final_any_of": [
+        "几点",
+        "时间段",
+        "具体时间",
+        "上午",
+        "下午",
+        "晚上"
+      ]
+    },
+    {
+      "name": "date_clarification_follow_up_resumes_original_plan",
+      "category": "route",
+      "message": "明天从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": ["下午三点"],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "计划出发时间：",
+        "用户表达：明天下午三点",
+        "出发时段天气预报：",
+        "推荐方式："
+      ]
+    },
+    {
+      "name": "recommendation_reason_follow_up_uses_previous_plan",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": ["为什么推荐这种方式？"],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "规则评分",
+        "推荐依据：",
+        "排名第一",
+        "第二名",
+        "领先",
+        "出发时段预报"
+      ]
+    },
+    {
+      "name": "cannot_drive_follow_up_reuses_previous_plan",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": ["如果我不能开车呢？"],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "本轮没有重新请求外部服务",
+        "用户约束：不能驾车",
+        "推荐方式：公共交通",
+        "未参与推荐：",
+        "用户明确表示不能驾车"
+      ],
+      "forbidden_final_substrings": ["推荐方式：驾车"]
+    },
+    {
+      "name": "replanned_recommendation_can_be_explained",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": [
+        "如果我不能开车呢？",
+        "为什么推荐这种方式？"
+      ],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "上次推荐公共交通",
+        "规则评分",
+        "推荐依据：",
+        "排名第一"
+      ],
+      "forbidden_final_substrings": ["上次推荐驾车"]
+    },
+    {
+      "name": "combined_preference_follow_up_reuses_previous_plan",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": [
+        "我不能开车，最多步行1000米，最多换乘1次，而且优先省钱"
+      ],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "本轮没有重新请求外部服务",
+        "用户约束：优先省钱；不能驾车；最大步行 1000 米；最多换乘 1 次",
+        "推荐方式：公共交通",
+        "用户明确表示不能驾车"
+      ],
+      "forbidden_final_substrings": ["推荐方式：驾车"]
+    },
+    {
+      "name": "conflicting_preference_follow_up_rejects_without_new_calls",
+      "category": "route",
+      "message": "明天下午三点从深圳大学粤海校区去深圳大学丽湖校区，帮我选一种交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "follow_up_messages": [
+        "我不能开车，最多步行100米，最多换乘0次"
+      ],
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "明天下午三点"
+      },
+      "required_final_substrings": [
+        "没有符合用户硬约束的出行方案",
+        "请放宽约束",
+        "本轮没有重新请求外部服务"
+      ]
+    },
+    {
+      "name": "out_of_range_forecast_degrades_with_explicit_limitation",
+      "category": "route",
+      "message": "30天后晚上七点从深圳大学粤海校区去深圳大学丽湖校区，比较交通方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "departure_time_text": "30天后晚上七点"
+      },
+      "required_final_substrings": [
+        "超出当前可查询的16天天气预报范围",
+        "路线数据仍为查询时结果"
+      ]
+    },
+    {
+      "name": "explicit_constraints_are_applied_and_explained",
+      "category": "route",
+      "message": "我不会开车，最多步行1000米，最多换乘1次，而且优先省钱。请比较从深圳大学粤海校区到深圳大学丽湖校区的出行方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "priority": "cheapest",
+        "can_drive": false,
+        "max_walking_distance_m": 1000,
+        "max_transfer_count": 1
+      },
+      "required_final_substrings": [
+        "用户约束：优先省钱；不能驾车；最大步行 1000 米；最多换乘 1 次",
+        "未参与推荐：",
+        "用户明确表示不能驾车"
+      ],
+      "forbidden_final_substrings": ["推荐方式：驾车"]
+    },
+    {
+      "name": "conflicting_constraints_return_actionable_rejection",
+      "category": "route",
+      "message": "我不会开车，最多只能步行100米，也不能换乘。请比较从深圳大学粤海校区到深圳大学丽湖校区的出行方式。如果地点有多个候选，请选择 importance 最高的候选。",
+      "expected_tool": "resolve_route_endpoints",
+      "expected_args": {
+        "origin_query": "深圳大学粤海校区",
+        "destination_query": "深圳大学丽湖校区"
+      },
+      "expected_tool_sequence": [
+        "resolve_route_endpoints",
+        "recommend_travel_plan"
+      ],
+      "planning_tool_from_endpoints": "recommend_travel_plan",
+      "expected_planning_args": {
+        "can_drive": false,
+        "max_walking_distance_m": 100,
+        "max_transfer_count": 0
+      },
+      "expect_tool_error": true,
+      "expected_tool_error_substrings": [
+        "没有符合用户硬约束的出行方案",
+        "用户明确表示不能驾车",
+        "超过用户上限"
+      ],
+      "required_final_any_of": [
+        "放宽",
+        "调整",
+        "约束",
+        "没有符合"
+      ]
+    },
+    {
+      "name": "missing_destination_asks_only_for_destination",
+      "category": "route",
+      "message": "我明天下午三点从深圳大学粤海校区出发，帮我规划路线。",
+      "expected_tool": null,
+      "required_final_any_of": ["终点", "目的地", "去哪里"],
+      "forbidden_final_substrings": [
+        "能否驾车",
+        "步行上限",
+        "最多换乘"
+      ]
+    },
+    {
+      "name": "missing_origin_asks_only_for_origin",
+      "category": "route",
+      "message": "我明天下午三点想去深圳大学丽湖校区，请帮我规划路线。",
+      "expected_tool": null,
+      "required_final_any_of": ["起点", "出发地", "从哪里"],
+      "forbidden_final_substrings": [
+        "能否驾车",
+        "步行上限",
+        "最多换乘"
       ]
     }
   ]

@@ -1,5 +1,6 @@
 import asyncio
 from collections import Counter
+from datetime import datetime
 
 from travel_agent.domain.decision import (
     JourneyContext,
@@ -7,9 +8,10 @@ from travel_agent.domain.decision import (
     TravelOption,
     TravelPreferences,
 )
+from travel_agent.domain.journey_time import DepartureTime
 from travel_agent.domain.route import GeoPoint, RoutePlan
 from travel_agent.domain.transit import TransitPlan
-from travel_agent.domain.weather import CurrentWeather
+from travel_agent.domain.weather import WeatherData
 from travel_agent.services.amap_driving import AmapDrivingRouteService
 from travel_agent.services.amap_walking import AmapWalkingRouteService
 from travel_agent.services.transit import TransitService
@@ -41,12 +43,25 @@ class TravelPlanningService:
         origin: GeoPoint,
         destination: GeoPoint,
         preferences: TravelPreferences | None = None,
+        departure_time: DepartureTime | None = None,
+        reference_at: datetime | None = None,
     ) -> TravelComparisonResult:
         """Run four independent provider calls without serial wait time."""
         preferences = preferences or TravelPreferences()
+        if departure_time is not None and reference_at is None:
+            raise ValueError("提供出发时间时必须同时提供当前参考时间")
+        weather_call = (
+            self._weather_service.get_current_weather(city)
+            if departure_time is None
+            else self._weather_service.get_weather_for_departure(
+                city,
+                departure_time,
+                reference_at=reference_at,
+            )
+        )
         weather_result, driving_result, walking_result, transit_result = (
             await asyncio.gather(
-                self._weather_service.get_current_weather(city),
+                weather_call,
                 self._driving_service.plan_driving_route(origin, destination),
                 self._walking_service.plan_walking_route(origin, destination),
                 self._transit_service.plan_transit_route(origin, destination),
@@ -56,7 +71,7 @@ class TravelPlanningService:
 
         weather = (
             weather_result
-            if isinstance(weather_result, CurrentWeather)
+            if isinstance(weather_result, WeatherData)
             else None
         )
         options = [
@@ -83,11 +98,35 @@ class TravelPlanningService:
                 }
             )
 
+        extra_limitations: list[str] = []
+        if departure_time is not None and reference_at is not None:
+            if departure_time.relation_to(reference_at) == "future":
+                extra_limitations.append(
+                    "天气使用出发时段预报；路线数据仍为查询时结果，"
+                    "不代表未来出发时的实时路况或班次"
+                )
+            if departure_time.precision == "time_period":
+                extra_limitations.append(
+                    "用户仅提供时间段，天气按"
+                    f" {departure_time.departure_at:%H:%M} 附近的逐小时预报估算"
+                )
+        if extra_limitations:
+            recommendation = recommendation.model_copy(
+                update={
+                    "limitations": list(
+                        dict.fromkeys(
+                            [*recommendation.limitations, *extra_limitations]
+                        )
+                    )
+                }
+            )
+
         return TravelComparisonResult(
             context=JourneyContext(
                 city=city,
                 origin_name=origin_name,
                 destination_name=destination_name,
+                departure_time=departure_time,
                 weather=weather,
                 preferences=preferences,
             ),

@@ -104,6 +104,52 @@ class PlaceResultCard(BaseModel):
     attribution: str = Field(min_length=1)
 
 
+class PlanningPreferenceCard(BaseModel):
+    """Current user preferences applied to one recommendation."""
+
+    priority: Literal[
+        "balanced",
+        "fastest",
+        "cheapest",
+        "least_walking",
+        "fewest_transfers",
+    ]
+    can_drive: bool | None = None
+    max_walking_distance_m: float | None = Field(default=None, ge=0)
+    max_transfer_count: int | None = Field(default=None, ge=0)
+
+
+class PlanningOptionCard(BaseModel):
+    """One ranked route summary safe for recommendation display."""
+
+    mode: Literal["driving", "walking", "transit"]
+    total_score: float = Field(ge=0, le=100)
+    duration_s: float = Field(ge=0)
+    walking_distance_m: float | None = Field(default=None, ge=0)
+    transfer_count: int | None = Field(default=None, ge=0)
+
+
+class PlanningExcludedOptionCard(BaseModel):
+    """One route mode excluded from recommendation with its real reason."""
+
+    mode: Literal["driving", "walking", "transit"]
+    reason: str = Field(min_length=1)
+
+
+class PlanningResultCard(BaseModel):
+    """Structured recommendation summary for initial plans and local re-ranks."""
+
+    type: Literal["planning"]
+    origin_name: str = Field(min_length=1)
+    destination_name: str = Field(min_length=1)
+    recommended_mode: Literal["driving", "walking", "transit"]
+    previous_recommended_mode: Literal["driving", "walking", "transit"] | None = None
+    reused_previous_data: bool = False
+    preferences: PlanningPreferenceCard
+    ranked_options: list[PlanningOptionCard] = Field(min_length=1)
+    unavailable_options: list[PlanningExcludedOptionCard] = Field(default_factory=list)
+
+
 class AgentResponse(BaseModel):
     """A completed answer or an interrupted action awaiting approval."""
 
@@ -137,6 +183,7 @@ class AgentStreamEvent(BaseModel):
         | RouteResultCard
         | TransitResultCard
         | PlaceResultCard
+        | PlanningResultCard
         | None
     ) = None
     pending_actions: list[PendingAction] = Field(default_factory=list)

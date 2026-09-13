@@ -3,7 +3,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import UUID, uuid4
 
-from langchain.messages import ToolMessage
+from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -17,6 +17,7 @@ from travel_agent.api.schemas import (
 )
 from travel_agent.api.streaming import (
     normalize_stream_part,
+    result_card_from_ai_message,
     result_card_from_tool_message,
 )
 from travel_agent.domain.conversation import (
@@ -369,11 +370,21 @@ class AgentRuntime:
         """Extract the same structured cards used by the streaming API."""
         if not isinstance(messages, list):
             return []
+        latest_human_index = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], HumanMessage)
+            ),
+            -1,
+        )
         cards: list[dict[str, Any]] = []
-        for message in messages:
-            if not isinstance(message, ToolMessage):
-                continue
-            card = result_card_from_tool_message(message)
+        for message in messages[latest_human_index + 1 :]:
+            card = None
+            if isinstance(message, ToolMessage):
+                card = result_card_from_tool_message(message)
+            elif isinstance(message, AIMessage):
+                card = result_card_from_ai_message(message)
             if card is not None:
                 cards.append(card.model_dump(mode="json"))
         return cards

@@ -19,18 +19,24 @@ class EvalCase(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9_]+$")
     category: Literal["weather", "place", "route"]
     message: str = Field(min_length=1)
+    follow_up_messages: tuple[str, ...] = Field(default=(), max_length=3)
     expected_tool: str | None
     expected_args: dict[str, object] = Field(default_factory=dict)
     expected_tool_sequence: tuple[str, ...] = ()
     route_tool_from_endpoints: str | None = None
     planning_tool_from_endpoints: str | None = None
+    expected_planning_args: dict[str, object] = Field(default_factory=dict)
     expect_tool_error: bool = False
+    expected_tool_error_substrings: tuple[str, ...] = ()
     required_final_substrings: tuple[str, ...] = ()
+    required_final_any_of: tuple[str, ...] = ()
     forbidden_final_substrings: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_expectations(self) -> "EvalCase":
         """Reject contradictory expectations before an expensive model run."""
+        if any(not message.strip() for message in self.follow_up_messages):
+            raise ValueError("多轮评测的后续消息不能为空")
         if self.expected_tool is None and self.expected_args:
             raise ValueError("无工具案例不能声明 expected_args")
         if (
@@ -55,6 +61,10 @@ class EvalCase(BaseModel):
             and self.planning_tool_from_endpoints is not None
         ):
             raise ValueError("单一路线工具与综合规划工具不能同时声明")
+        if self.expected_planning_args and self.planning_tool_from_endpoints is None:
+            raise ValueError("综合规划参数期望必须同时声明 planning_tool_from_endpoints")
+        if self.expected_tool_error_substrings and not self.expect_tool_error:
+            raise ValueError("工具错误文本期望必须同时启用 expect_tool_error")
         return self
 
 

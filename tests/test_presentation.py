@@ -258,6 +258,80 @@ def test_render_user_response_deterministically_renders_planning_result() -> Non
     assert "高德公交" in rendered
 
 
+def test_render_user_response_labels_departure_forecast_and_time() -> None:
+    messages = [
+        HumanMessage(content="明天下午三点怎么去？"),
+        ToolMessage(
+            name="recommend_travel_plan",
+            tool_call_id="call-future-plan",
+            content=(
+                '{"context":{"city":"深圳","origin_name":"粤海校区",'
+                '"destination_name":"丽湖校区","departure_time":{'
+                '"departure_at":"2026-09-13T15:00:00+08:00",'
+                '"timezone":"Asia/Shanghai","precision":"exact",'
+                '"source_text":"明天下午三点"},"weather":{'
+                '"temperature_c":28,"apparent_temperature_c":29,'
+                '"precipitation_mm":1.2,"wind_speed_kmh":12,'
+                '"condition":"小雨",'
+                '"forecast_at":"2026-09-13T15:00"}},"recommendation":{'
+                '"recommended_mode":"transit","confidence":0.4,'
+                '"ranked_options":[{"option":{"mode":"transit",'
+                '"distance_m":8000,"duration_s":2400,'
+                '"walking_distance_m":500,"transfer_count":1,'
+                '"cost_yuan":5,"attribution":"高德公交"},'
+                '"scores":{"total":84}}],"limitations":['
+                '"天气使用出发时段预报；路线数据仍为查询时结果"]}}'
+            ),
+        ),
+        AIMessage(content="这是模型生成但不应覆盖确定性展示的文本。"),
+    ]
+
+    rendered = render_user_response(messages)
+
+    assert "计划出发时间：2026-09-13T15:00:00+08:00" in rendered
+    assert "用户表达：明天下午三点" in rendered
+    assert "出发时段天气预报：小雨" in rendered
+    assert "路线数据仍为查询时结果" in rendered
+    assert "当前天气：" not in rendered
+
+
+def test_render_user_response_explains_constraints_and_excluded_modes() -> None:
+    messages = [
+        HumanMessage(content="我不会开车，优先省钱，最多步行800米。"),
+        ToolMessage(
+            name="recommend_travel_plan",
+            tool_call_id="call-constrained-plan",
+            content=(
+                '{"context":{"city":"深圳","origin_name":"粤海校区",'
+                '"destination_name":"丽湖校区","preferences":{'
+                '"priority":"cheapest","can_drive":false,'
+                '"max_walking_distance_m":800,"max_transfer_count":1}},'
+                '"recommendation":{"recommended_mode":"transit",'
+                '"confidence":0.6,"ranked_options":[{"option":{'
+                '"mode":"transit","distance_m":8000,"duration_s":2400,'
+                '"walking_distance_m":500,"transfer_count":1,'
+                '"cost_yuan":5,"attribution":"高德公交"},'
+                '"scores":{"total":84}}],"unavailable_options":[{'
+                '"mode":"driving","status":"unavailable",'
+                '"failure_reason":"用户明确表示不能驾车"},{'
+                '"mode":"walking","status":"unavailable",'
+                '"failure_reason":"步行距离 5000 米超过用户上限 800 米"}],'
+                '"limitations":["driving 方案未参与评分：用户明确表示不能驾车",'
+                '"walking 方案未参与评分：步行距离超过用户上限"]}}'
+            ),
+        ),
+        AIMessage(content="推荐公共交通。"),
+    ]
+
+    rendered = render_user_response(messages)
+
+    assert "用户约束：优先省钱；不能驾车；最大步行 800 米；最多换乘 1 次" in rendered
+    assert "未参与推荐：" in rendered
+    assert "- 驾车：用户明确表示不能驾车" in rendered
+    assert "- 步行：步行距离 5000 米超过用户上限 800 米" in rendered
+    assert "方案未参与评分" not in rendered
+
+
 def test_render_user_response_uses_only_current_turn_attribution() -> None:
     transit_attribution = "公交路线数据来源：高德地图 Web服务 API"
     walking_attribution = "步行路线数据来源：高德地图 Web服务 API"

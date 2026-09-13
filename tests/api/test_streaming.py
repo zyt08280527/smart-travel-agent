@@ -357,3 +357,112 @@ def test_route_endpoint_resolution_does_not_create_place_card() -> None:
     )
 
     assert [event.type for event in events] == ["tool_completed"]
+
+
+def test_composite_plan_becomes_structured_planning_card() -> None:
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            name="recommend_travel_plan",
+                            tool_call_id="call-plan",
+                            content=(
+                                '{"context":{"origin_name":"粤海校区",'
+                                '"destination_name":"丽湖校区",'
+                                '"preferences":{"priority":"balanced",'
+                                '"can_drive":null,"max_walking_distance_m":null,'
+                                '"max_transfer_count":null}},"recommendation":{'
+                                '"recommended_mode":"driving","ranked_options":['
+                                '{"option":{"mode":"driving",'
+                                '"duration_s":1800},"scores":{"total":82}},'
+                                '{"option":{"mode":"transit",'
+                                '"duration_s":2700,"walking_distance_m":800,'
+                                '"transfer_count":1},"scores":{"total":77}}],'
+                                '"unavailable_options":[]}}'
+                            ),
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    assert [event.type for event in events] == ["tool_completed", "result_card"]
+    card = events[1].card
+    assert card is not None
+    assert card.type == "planning"
+    assert card.recommended_mode == "driving"
+    assert card.previous_recommended_mode is None
+    assert card.reused_previous_data is False
+    assert [option.mode for option in card.ranked_options] == ["driving", "transit"]
+
+
+def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
+    payload = {
+        "context": {
+            "origin_name": "粤海校区",
+            "destination_name": "丽湖校区",
+            "preferences": {
+                "priority": "cheapest",
+                "can_drive": False,
+                "max_walking_distance_m": 1000,
+                "max_transfer_count": 1,
+            },
+        },
+        "recommendation": {
+            "recommended_mode": "transit",
+            "ranked_options": [
+                {
+                    "option": {
+                        "mode": "transit",
+                        "duration_s": 2700,
+                        "walking_distance_m": 800,
+                        "transfer_count": 1,
+                    },
+                    "scores": {"total": 84},
+                }
+            ],
+            "unavailable_options": [
+                {
+                    "mode": "driving",
+                    "failure_reason": "用户明确表示不能驾车",
+                }
+            ],
+        },
+    }
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "PreferenceReplanningMiddleware.before_model": {
+                    "messages": [
+                        AIMessage(
+                            content="已重新规划",
+                            additional_kwargs={
+                                "travel_planning_payload": payload,
+                                "travel_planning_update": {
+                                    "reused_previous_data": True,
+                                    "previous_recommended_mode": "driving",
+                                },
+                            },
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    assert [event.type for event in events] == ["result_card"]
+    card = events[0].card
+    assert card is not None
+    assert card.type == "planning"
+    assert card.previous_recommended_mode == "driving"
+    assert card.recommended_mode == "transit"
+    assert card.reused_previous_data is True
+    assert card.preferences.can_drive is False
+    assert card.unavailable_options[0].reason == "用户明确表示不能驾车"

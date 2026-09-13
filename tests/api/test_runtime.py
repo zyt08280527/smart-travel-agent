@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from langchain.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
 from travel_agent.api.runtime import (
     AgentRuntime,
@@ -387,6 +387,58 @@ async def test_runtime_streams_public_events_and_final_answer(
         "深圳天气很好。",
     ]
     await runtime.stop()
+
+
+def test_runtime_extracts_only_current_turn_local_replan_card() -> None:
+    old_tool = ToolMessage(
+        name="query_current_weather",
+        tool_call_id="call-weather",
+        content=(
+            '{"location":{"name":"深圳"},"temperature_c":25,'
+            '"apparent_temperature_c":26,"precipitation_mm":0,'
+            '"wind_speed_kmh":5,"condition":"晴朗",'
+            '"observed_at":"2026-09-12T12:00"}'
+        ),
+    )
+    planning_payload = {
+        "context": {
+            "origin_name": "粤海校区",
+            "destination_name": "丽湖校区",
+            "preferences": {"priority": "balanced", "can_drive": False},
+        },
+        "recommendation": {
+            "recommended_mode": "transit",
+            "ranked_options": [
+                {
+                    "option": {"mode": "transit", "duration_s": 2700},
+                    "scores": {"total": 84},
+                }
+            ],
+            "unavailable_options": [],
+        },
+    }
+    messages = [
+        HumanMessage(content="深圳天气"),
+        old_tool,
+        AIMessage(content="天气回答"),
+        HumanMessage(content="如果不能开车呢"),
+        AIMessage(
+            content="已重新规划",
+            additional_kwargs={
+                "travel_planning_payload": planning_payload,
+                "travel_planning_update": {
+                    "reused_previous_data": True,
+                    "previous_recommended_mode": "driving",
+                },
+            },
+        ),
+    ]
+
+    cards = AgentRuntime._cards_from_messages(messages)
+
+    assert len(cards) == 1
+    assert cards[0]["type"] == "planning"
+    assert cards[0]["reused_previous_data"] is True
 
 
 @pytest.mark.asyncio

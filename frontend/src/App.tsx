@@ -14,6 +14,7 @@ import type {
   ConversationSummary,
   PendingAction,
   PlaceResultCard,
+  PlanningResultCard,
   ResultCard,
   RouteResultCard,
   TransitResultCard,
@@ -45,6 +46,7 @@ const TOOL_LABELS: Record<string, string> = {
   plan_driving_route: '驾车路线规划',
   plan_walking_route: '步行路线规划',
   plan_transit_route: '公共交通路线规划',
+  recommend_travel_plan: '综合出行推荐',
   save_itinerary: '行程保存',
 }
 
@@ -293,6 +295,122 @@ function PlaceCard({ card }: { card: PlaceResultCard }) {
   )
 }
 
+const MODE_LABELS = {
+  driving: '驾车',
+  transit: '公共交通',
+  walking: '步行',
+}
+
+const PRIORITY_LABELS = {
+  balanced: '均衡考虑',
+  fastest: '优先速度',
+  cheapest: '优先省钱',
+  least_walking: '优先少步行',
+  fewest_transfers: '优先少换乘',
+}
+
+function PlanningCard({ card }: { card: PlanningResultCard }) {
+  const preferenceLabels = [PRIORITY_LABELS[card.preferences.priority]]
+  if (card.preferences.can_drive === false) {
+    preferenceLabels.push('不能驾车')
+  } else if (card.preferences.can_drive === true) {
+    preferenceLabels.push('可以驾车')
+  }
+  if (card.preferences.max_walking_distance_m != null) {
+    preferenceLabels.push(
+      `最多步行 ${formatDistance(card.preferences.max_walking_distance_m)}`,
+    )
+  }
+  if (card.preferences.max_transfer_count != null) {
+    preferenceLabels.push(`最多换乘 ${card.preferences.max_transfer_count} 次`)
+  }
+
+  const previousModeLabel = card.previous_recommended_mode == null
+    ? null
+    : MODE_LABELS[card.previous_recommended_mode]
+  const recommendationChanged =
+    previousModeLabel != null
+    && card.previous_recommended_mode !== card.recommended_mode
+
+  return (
+    <section className="result-card planning-card" aria-label="综合出行推荐">
+      <div className="result-card-heading">
+        <div>
+          <p className="result-card-kicker">
+            {card.reused_previous_data ? '本地重新评分' : '综合出行推荐'}
+          </p>
+          <h4>{card.origin_name} → {card.destination_name}</h4>
+        </div>
+      </div>
+
+      <div className="planning-recommendation">
+        {recommendationChanged ? (
+          <>
+            <span>推荐变化</span>
+            <strong>
+              {previousModeLabel} → {MODE_LABELS[card.recommended_mode]}
+            </strong>
+          </>
+        ) : (
+          <>
+            <span>当前推荐</span>
+            <strong>{MODE_LABELS[card.recommended_mode]}</strong>
+          </>
+        )}
+      </div>
+
+      <div className="planning-preferences" aria-label="当前偏好">
+        {preferenceLabels.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
+
+      <ol className="planning-ranking">
+        {card.ranked_options.map((option, index) => (
+          <li key={option.mode}>
+            <strong>{index + 1}. {MODE_LABELS[option.mode]}</strong>
+            <span>
+              {option.total_score.toFixed(1)} 分 · {formatDuration(option.duration_s)}
+            </span>
+            {(option.walking_distance_m != null
+              || option.transfer_count != null) && (
+              <small>
+                {option.walking_distance_m != null
+                  ? `步行 ${formatDistance(option.walking_distance_m)}`
+                  : ''}
+                {option.walking_distance_m != null
+                  && option.transfer_count != null ? ' · ' : ''}
+                {option.transfer_count != null
+                  ? `换乘 ${option.transfer_count} 次`
+                  : ''}
+              </small>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      {card.unavailable_options.length > 0 && (
+        <div className="planning-exclusions">
+          <strong>未参与推荐</strong>
+          <ul>
+            {card.unavailable_options.map((option) => (
+              <li key={`${option.mode}-${option.reason}`}>
+                {MODE_LABELS[option.mode]}：{option.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {card.reused_previous_data && (
+        <p className="result-card-time">
+          复用上一轮路线与天气快照，本轮未重新请求外部服务。
+        </p>
+      )}
+    </section>
+  )
+}
+
 function ResultCardView({ card }: { card: ResultCard }) {
   if (card.type === 'weather') {
     return <WeatherCard card={card} />
@@ -305,6 +423,9 @@ function ResultCardView({ card }: { card: ResultCard }) {
   }
   if (card.type === 'place') {
     return <PlaceCard card={card} />
+  }
+  if (card.type === 'planning') {
+    return <PlanningCard card={card} />
   }
   return null
 }

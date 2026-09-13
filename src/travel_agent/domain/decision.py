@@ -1,9 +1,9 @@
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from travel_agent.domain.weather import CurrentWeather
+from travel_agent.domain.journey_time import DepartureTime
+from travel_agent.domain.weather import WeatherData
 
 TravelMode = Literal["walking", "transit", "driving"]
 TravelPriority = Literal[
@@ -31,8 +31,8 @@ class JourneyContext(BaseModel):
     city: str = Field(min_length=1)
     origin_name: str = Field(min_length=1)
     destination_name: str = Field(min_length=1)
-    departure_time: datetime | None = None
-    weather: CurrentWeather | None = None
+    departure_time: DepartureTime | None = None
+    weather: WeatherData | None = None
     preferences: TravelPreferences = Field(default_factory=TravelPreferences)
 
 

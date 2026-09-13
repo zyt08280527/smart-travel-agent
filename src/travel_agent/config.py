@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     itinerary_storage_path: Path = Path("data/itineraries.jsonl")
     checkpoint_storage_path: Path = Path("data/checkpoints.sqlite")
     conversation_storage_path: Path = Path("data/conversations.sqlite")
+    business_timezone: str = Field(default="Asia/Shanghai", min_length=1)
     app_env: str = "development"
     log_level: str = "INFO"
 

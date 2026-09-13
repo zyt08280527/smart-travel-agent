@@ -385,6 +385,84 @@ button:disabled {
   font-family: var(--mono);
 }
 
+.planning-recommendation {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.planning-recommendation span {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.planning-recommendation strong {
+  color: var(--text-h);
+  font-size: 18px;
+}
+
+.planning-preferences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.planning-preferences span {
+  padding: 5px 9px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  color: var(--text-h);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.planning-ranking {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-ranking li {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(150px, 1.3fr);
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.planning-ranking strong,
+.planning-ranking span {
+  color: var(--text-h);
+}
+
+.planning-ranking small {
+  grid-column: 2;
+  color: var(--text);
+}
+
+.planning-exclusions {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-h);
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.planning-exclusions ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 .approval-card {
   padding: 18px;
   border: 1px solid var(--accent-border);

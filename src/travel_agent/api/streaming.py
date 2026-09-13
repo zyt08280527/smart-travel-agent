@@ -10,6 +10,10 @@ from travel_agent.api.schemas import (
     AgentStreamEvent,
     PlaceCandidateCard,
     PlaceResultCard,
+    PlanningExcludedOptionCard,
+    PlanningOptionCard,
+    PlanningPreferenceCard,
+    PlanningResultCard,
     RouteResultCard,
     TransitResultCard,
     WeatherResultCard,
@@ -202,6 +206,93 @@ def _place_card(message: ToolMessage) -> PlaceResultCard | None:
         return None
 
 
+def _planning_card_from_payload(
+    payload: dict[str, object],
+    *,
+    reused_previous_data: bool = False,
+    previous_recommended_mode: object = None,
+) -> PlanningResultCard | None:
+    """Build a recommendation card from a safe subset of planning data."""
+    context = payload.get("context")
+    recommendation = payload.get("recommendation")
+    if not isinstance(context, dict) or not isinstance(recommendation, dict):
+        return None
+    preferences = context.get("preferences")
+    ranked = recommendation.get("ranked_options")
+    unavailable = recommendation.get("unavailable_options", [])
+    if not isinstance(preferences, dict) or not isinstance(ranked, list):
+        return None
+    if not isinstance(unavailable, list):
+        return None
+
+    ranked_cards: list[PlanningOptionCard] = []
+    excluded_cards: list[PlanningExcludedOptionCard] = []
+    try:
+        for scored in ranked:
+            if not isinstance(scored, dict):
+                continue
+            option = scored.get("option")
+            scores = scored.get("scores")
+            if not isinstance(option, dict) or not isinstance(scores, dict):
+                continue
+            ranked_cards.append(
+                PlanningOptionCard(
+                    mode=option["mode"],
+                    total_score=scores["total"],
+                    duration_s=option["duration_s"],
+                    walking_distance_m=option.get("walking_distance_m"),
+                    transfer_count=option.get("transfer_count"),
+                )
+            )
+        for option in unavailable:
+            if not isinstance(option, dict):
+                continue
+            reason = option.get("failure_reason")
+            if not isinstance(reason, str) or not reason:
+                continue
+            excluded_cards.append(
+                PlanningExcludedOptionCard(
+                    mode=option["mode"],
+                    reason=reason,
+                )
+            )
+        return PlanningResultCard(
+            type="planning",
+            origin_name=context["origin_name"],
+            destination_name=context["destination_name"],
+            recommended_mode=recommendation["recommended_mode"],
+            previous_recommended_mode=previous_recommended_mode,
+            reused_previous_data=reused_previous_data,
+            preferences=PlanningPreferenceCard.model_validate(preferences),
+            ranked_options=ranked_cards,
+            unavailable_options=excluded_cards,
+        )
+    except (KeyError, TypeError, ValidationError):
+        return None
+
+
+def _planning_tool_card(message: ToolMessage) -> PlanningResultCard | None:
+    if message.name != "recommend_travel_plan":
+        return None
+    payload = _tool_json_payload(message)
+    if payload is None or payload.get("ok") is False:
+        return None
+    return _planning_card_from_payload(payload)
+
+
+def result_card_from_ai_message(message: AIMessage) -> PlanningResultCard | None:
+    """Expose a local re-rank stored on a middleware-generated AI message."""
+    payload = message.additional_kwargs.get("travel_planning_payload")
+    metadata = message.additional_kwargs.get("travel_planning_update", {})
+    if not isinstance(payload, dict) or not isinstance(metadata, dict):
+        return None
+    return _planning_card_from_payload(
+        payload,
+        reused_previous_data=metadata.get("reused_previous_data") is True,
+        previous_recommended_mode=metadata.get("previous_recommended_mode"),
+    )
+
+
 def result_card_from_tool_message(
     message: ToolMessage,
 ) -> (
@@ -217,6 +308,7 @@ def result_card_from_tool_message(
         or _route_card(message)
         or _transit_card(message)
         or _place_card(message)
+        or _planning_tool_card(message)
     )
 
 
@@ -275,6 +367,15 @@ def _update_events(
                             tool_name=tool_call["name"],
                             tool_args=tool_call["args"],
                             tool_call_id=tool_call.get("id"),
+                        )
+                    )
+                result_card = result_card_from_ai_message(message)
+                if result_card is not None:
+                    events.append(
+                        AgentStreamEvent(
+                            type="result_card",
+                            thread_id=thread_id,
+                            card=result_card,
                         )
                     )
             elif isinstance(message, ToolMessage):

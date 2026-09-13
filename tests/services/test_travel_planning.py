@@ -1,15 +1,20 @@
 import asyncio
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from travel_agent.domain.decision import TravelPreferences
+from travel_agent.domain.journey_time import DepartureTime
 from travel_agent.domain.route import GeoPoint, RoutePlan, TrafficSegment
 from travel_agent.domain.transit import TransitLeg, TransitOption, TransitPlan
-from travel_agent.domain.weather import CurrentWeather, Location
+from travel_agent.domain.weather import CurrentWeather, ForecastWeather, Location
 from travel_agent.services.travel_planning import TravelPlanningService
 
 ORIGIN = GeoPoint(latitude=22.5359, longitude=113.9315)
 DESTINATION = GeoPoint(latitude=22.6009, longitude=113.9879)
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+REFERENCE_TIME = datetime(2026, 9, 11, 10, 0, tzinfo=SHANGHAI)
 
 
 class ConcurrencyGate:
@@ -93,11 +98,33 @@ def build_transit() -> TransitPlan:
 class FakeWeatherService:
     def __init__(self, gate: ConcurrencyGate | None = None) -> None:
         self.gate = gate
+        self.departure_calls: list[tuple[str, DepartureTime, datetime]] = []
 
     async def get_current_weather(self, _city: str) -> CurrentWeather:
         if self.gate:
             await self.gate.wait()
         return build_weather()
+
+    async def get_weather_for_departure(
+        self,
+        city: str,
+        departure: DepartureTime,
+        *,
+        reference_at: datetime,
+    ) -> ForecastWeather:
+        self.departure_calls.append((city, departure, reference_at))
+        if self.gate:
+            await self.gate.wait()
+        return ForecastWeather(
+            location=build_weather().location,
+            temperature_c=28,
+            apparent_temperature_c=29,
+            precipitation_mm=1.2,
+            wind_speed_kmh=12,
+            weather_code=61,
+            condition="小雨",
+            forecast_at=departure.departure_at.isoformat(),
+        )
 
 
 class FakeRouteService:
@@ -215,3 +242,60 @@ async def test_compare_degrades_when_one_route_provider_fails() -> None:
     assert "驾车接口超时" in (
         result.recommendation.unavailable_options[0].failure_reason or ""
     )
+
+
+@pytest.mark.asyncio
+async def test_compare_uses_departure_forecast_and_discloses_route_snapshot() -> None:
+    weather_service = FakeWeatherService()
+    service = TravelPlanningService(
+        weather_service=weather_service,
+        driving_service=FakeRouteService(build_driving()),
+        walking_service=FakeRouteService(build_walking()),
+        transit_service=FakeTransitService(),
+    )
+    departure = DepartureTime(
+        departure_at=REFERENCE_TIME + timedelta(days=1, hours=5),
+        timezone="Asia/Shanghai",
+        precision="exact",
+        source_text="明天下午三点",
+    )
+
+    result = await service.compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        departure_time=departure,
+        reference_at=REFERENCE_TIME,
+    )
+
+    assert isinstance(result.context.weather, ForecastWeather)
+    assert result.context.departure_time == departure
+    assert weather_service.departure_calls == [
+        ("深圳", departure, REFERENCE_TIME)
+    ]
+    assert any(
+        "路线数据仍为查询时结果" in limitation
+        for limitation in result.recommendation.limitations
+    )
+
+
+@pytest.mark.asyncio
+async def test_compare_requires_reference_clock_with_departure_time() -> None:
+    departure = DepartureTime(
+        departure_at=REFERENCE_TIME + timedelta(hours=1),
+        timezone="Asia/Shanghai",
+        precision="exact",
+        source_text="十一点",
+    )
+
+    with pytest.raises(ValueError, match="当前参考时间"):
+        await build_service().compare(
+            city="深圳",
+            origin_name="粤海校区",
+            destination_name="丽湖校区",
+            origin=ORIGIN,
+            destination=DESTINATION,
+            departure_time=departure,
+        )

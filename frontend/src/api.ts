@@ -89,11 +89,49 @@ export type PlaceResultCard = {
   attribution: string
 }
 
+export type PlanningPreferences = {
+  priority:
+    | 'balanced'
+    | 'fastest'
+    | 'cheapest'
+    | 'least_walking'
+    | 'fewest_transfers'
+  can_drive?: boolean | null
+  max_walking_distance_m?: number | null
+  max_transfer_count?: number | null
+}
+
+export type PlanningOption = {
+  mode: 'driving' | 'walking' | 'transit'
+  total_score: number
+  duration_s: number
+  walking_distance_m?: number | null
+  transfer_count?: number | null
+}
+
+export type PlanningExcludedOption = {
+  mode: 'driving' | 'walking' | 'transit'
+  reason: string
+}
+
+export type PlanningResultCard = {
+  type: 'planning'
+  origin_name: string
+  destination_name: string
+  recommended_mode: 'driving' | 'walking' | 'transit'
+  previous_recommended_mode?: 'driving' | 'walking' | 'transit' | null
+  reused_previous_data: boolean
+  preferences: PlanningPreferences
+  ranked_options: PlanningOption[]
+  unavailable_options: PlanningExcludedOption[]
+}
+
 export type ResultCard =
   | WeatherResultCard
   | RouteResultCard
   | TransitResultCard
   | PlaceResultCard
+  | PlanningResultCard
 
 export type ConversationStatus = 'ready' | 'approval_required' | 'error'
 

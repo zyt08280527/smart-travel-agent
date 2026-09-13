@@ -18,6 +18,7 @@ def test_settings_validate_values_and_hide_secret() -> None:
     assert settings.conversation_storage_path == Path(
         "data/conversations.sqlite"
     )
+    assert settings.business_timezone == "Asia/Shanghai"
     assert str(settings.dashscope_api_key) == "**********"
     assert settings.dashscope_api_key.get_secret_value() == "sk-test-only"
     assert str(settings.amap_api_key) == "**********"

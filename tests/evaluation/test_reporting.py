@@ -90,7 +90,16 @@ def test_build_report_aggregates_case_measurements() -> None:
     )
     first = measure_case(
         case_result,
-        [AIMessage(content="完成")],
+        [
+            AIMessage(
+                content="完成",
+                usage_metadata={
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                },
+            )
+        ],
         latency_ms=100,
     )
     observation = ExternalHttpRequest(
@@ -134,3 +143,24 @@ def test_build_report_aggregates_case_measurements() -> None:
     assert report.external_http_retry_count == 1
     assert report.external_http_failed_attempt_count == 1
     assert report.metrics.task_completion_rate == 1
+
+
+def test_measure_case_does_not_count_middleware_message_as_model_call() -> None:
+    result = EvalCaseResult(
+        name="middleware_clarification",
+        category="route",
+        tool_selection_correct=True,
+        parameter_correct=None,
+        task_completed=True,
+        actual_tool_sequence=[],
+    )
+
+    measurement = measure_case(
+        result,
+        [AIMessage(content="请补充具体出发时段。")],
+        latency_ms=1,
+    )
+
+    assert measurement.model_calls == 0
+    assert measurement.tool_calls == 0
+    assert measurement.total_tokens == 0

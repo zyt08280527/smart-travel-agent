@@ -195,15 +195,25 @@ def score_case(case: EvalCase, messages: list[object]) -> EvalCaseResult:
                     "综合规划工具的坐标参数必须与起终点工具返回的"
                     "第一组候选坐标一致"
                 )
+            elif case.planning_tool_from_endpoints is not None and not all(
+                downstream_call["args"].get(key) == value
+                for key, value in case.expected_planning_args.items()
+            ):
+                parameter_correct = False
+                failures.append(
+                    "综合规划工具参数必须包含预期业务参数 "
+                    f"{case.expected_planning_args!r}"
+                )
 
     if case.expect_tool_error:
         if not error_payloads:
             failures.append("工具结果应包含 ok=false")
-        if not any(
-            "未找到城市" in str(payload.get("error", ""))
-            for payload in error_payloads
-        ):
-            failures.append("工具结果应说明未找到城市")
+        for expected_text in case.expected_tool_error_substrings:
+            if not any(
+                expected_text in str(payload.get("error", ""))
+                for payload in error_payloads
+            ):
+                failures.append(f"工具错误应包含 {expected_text!r}")
 
     final_answers = [
         message.content
@@ -217,6 +227,13 @@ def score_case(case: EvalCase, messages: list[object]) -> EvalCaseResult:
         for required_text in case.required_final_substrings:
             if required_text not in final_answer:
                 failures.append(f"最终回答应包含 {required_text!r}")
+        if case.required_final_any_of and not any(
+            text in final_answer for text in case.required_final_any_of
+        ):
+            failures.append(
+                "最终回答至少应包含一个澄清提示词："
+                f"{case.required_final_any_of!r}"
+            )
     for forbidden_text in case.forbidden_final_substrings:
         if forbidden_text in final_answer:
             failures.append(f"最终回答不应包含 {forbidden_text!r}")
@@ -262,7 +279,11 @@ def summarize_results(results: list[EvalCaseResult]) -> EvalMetrics:
         tool_selection_accuracy=tool_correct / len(results),
         parameter_cases=len(parameter_results),
         parameter_correct=parameter_correct,
-        parameter_accuracy=parameter_correct / len(parameter_results),
+        parameter_accuracy=(
+            parameter_correct / len(parameter_results)
+            if parameter_results
+            else 0
+        ),
         scored_task_cases=len(scored_task_results),
         infrastructure_blocked_cases=sum(
             result.infrastructure_blocked for result in results

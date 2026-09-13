@@ -202,6 +202,73 @@ def test_score_composite_plan_rejects_duplicate_weather_call() -> None:
     ]
 
 
+def test_score_composite_plan_checks_departure_time_text() -> None:
+    case = EvalCase(
+        name="future_planning_parameter_case",
+        category="route",
+        message="明天下午三点比较出行方式",
+        expected_tool="resolve_route_endpoints",
+        expected_tool_sequence=(
+            "resolve_route_endpoints",
+            "recommend_travel_plan",
+        ),
+        planning_tool_from_endpoints="recommend_travel_plan",
+        expected_planning_args={"departure_time_text": "明天下午三点"},
+    )
+    endpoint_payload = {
+        "origin": {"places": [{"latitude": 22.5, "longitude": 113.9}]},
+        "destination": {
+            "places": [{"latitude": 22.6, "longitude": 114.0}]
+        },
+    }
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "resolve_route_endpoints",
+                    "args": {},
+                    "id": "call-endpoints",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(
+            content=json.dumps(endpoint_payload),
+            name="resolve_route_endpoints",
+            tool_call_id="call-endpoints",
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "recommend_travel_plan",
+                    "args": {
+                        "origin_latitude": 22.5,
+                        "origin_longitude": 113.9,
+                        "destination_latitude": 22.6,
+                        "destination_longitude": 114.0,
+                        "departure_time_text": "明天下午",
+                    },
+                    "id": "call-plan",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(
+            content="{}",
+            name="recommend_travel_plan",
+            tool_call_id="call-plan",
+        ),
+        AIMessage(content="已完成比较。"),
+    ]
+
+    result = score_case(case, messages)
+
+    assert result.parameter_correct is False
+    assert any("预期业务参数" in failure for failure in result.failures)
+
+
 def test_summarize_results_excludes_no_tool_case_from_parameter_denominator() -> None:
     no_tool_case = EvalCase(
         name="no_tool_case",
@@ -228,6 +295,41 @@ def test_summarize_results_excludes_no_tool_case_from_parameter_denominator() ->
     assert metrics.parameter_cases == 1
     assert metrics.parameter_accuracy == 0
     assert metrics.task_completion_rate == 0.5
+
+
+def test_score_case_accepts_one_of_multiple_clarification_phrases() -> None:
+    case = EvalCase(
+        name="clarification_phrase_case",
+        category="route",
+        message="明天出发",
+        expected_tool=None,
+        required_final_any_of=("几点", "具体时间", "上午"),
+    )
+
+    result = score_case(
+        case,
+        [AIMessage(content="请问您计划明天几点出发？")],
+    )
+
+    assert result.task_completed is True
+
+
+def test_summarize_results_handles_only_no_tool_cases() -> None:
+    case = EvalCase(
+        name="only_clarification_case",
+        category="route",
+        message="从哪里出发？",
+        expected_tool=None,
+    )
+
+    metrics = summarize_results(
+        [score_case(case, [AIMessage(content="请提供起点。")])]
+    )
+
+    assert metrics.parameter_cases == 0
+    assert metrics.parameter_correct == 0
+    assert metrics.parameter_accuracy == 0
+    assert metrics.task_completion_rate == 1
 
 
 def test_external_tool_failure_blocks_instead_of_failing_completion() -> None:

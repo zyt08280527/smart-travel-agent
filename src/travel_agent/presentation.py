@@ -354,7 +354,7 @@ def _route_summary_line(scored: object) -> str | None:
     return f"- {mode_name}：{'；'.join(details)}"
 
 
-def _render_planning_payload(payload: dict[str, object]) -> str | None:
+def render_planning_payload(payload: dict[str, object]) -> str | None:
     context = payload.get("context")
     recommendation = payload.get("recommendation")
     if not isinstance(context, dict) or not isinstance(recommendation, dict):
@@ -377,6 +377,41 @@ def _render_planning_payload(payload: dict[str, object]) -> str | None:
         f"{origin} → {destination} 出行比较",
         "",
     ]
+    departure_time = context.get("departure_time")
+    if isinstance(departure_time, dict):
+        departure_at = departure_time.get("departure_at")
+        source_text = departure_time.get("source_text")
+        if isinstance(departure_at, str):
+            departure_line = f"计划出发时间：{departure_at}"
+            if isinstance(source_text, str):
+                departure_line += f"（用户表达：{source_text}）"
+            lines.extend([departure_line, ""])
+
+    preferences = context.get("preferences")
+    if isinstance(preferences, dict):
+        preference_parts: list[str] = []
+        priority_labels = {
+            "fastest": "优先速度",
+            "cheapest": "优先省钱",
+            "least_walking": "优先少步行",
+            "fewest_transfers": "优先少换乘",
+        }
+        priority_label = priority_labels.get(preferences.get("priority"))
+        if priority_label:
+            preference_parts.append(priority_label)
+        if preferences.get("can_drive") is False:
+            preference_parts.append("不能驾车")
+        elif preferences.get("can_drive") is True:
+            preference_parts.append("可以驾车")
+        max_walking = _number(preferences.get("max_walking_distance_m"))
+        if max_walking is not None:
+            preference_parts.append(f"最大步行 {max_walking:g} 米")
+        max_transfers = preferences.get("max_transfer_count")
+        if isinstance(max_transfers, int):
+            preference_parts.append(f"最多换乘 {max_transfers} 次")
+        if preference_parts:
+            lines.extend([f"用户约束：{'；'.join(preference_parts)}。", ""])
+
     weather = context.get("weather")
     if isinstance(weather, dict):
         temperature = _number(weather.get("temperature_c"))
@@ -396,7 +431,12 @@ def _render_planning_payload(payload: dict[str, object]) -> str | None:
         if wind is not None:
             weather_parts.append(f"风速 {wind:g} km/h")
         if weather_parts:
-            lines.extend([f"当前天气：{'，'.join(weather_parts)}。", ""])
+            weather_label = (
+                "出发时段天气预报"
+                if isinstance(weather.get("forecast_at"), str)
+                else "当前天气"
+            )
+            lines.extend([f"{weather_label}：{'，'.join(weather_parts)}。", ""])
 
     confidence = _number(recommendation.get("confidence"))
     recommendation_text = f"推荐方式：{mode_names[recommended_mode]}"
@@ -407,17 +447,29 @@ def _render_planning_payload(payload: dict[str, object]) -> str | None:
         line for scored in ranked if (line := _route_summary_line(scored))
     )
 
+    unavailable = recommendation.get("unavailable_options")
+    if isinstance(unavailable, list):
+        unavailable_lines = []
+        for option in unavailable:
+            if not isinstance(option, dict):
+                continue
+            mode_name = mode_names.get(option.get("mode"))
+            reason = option.get("failure_reason")
+            if mode_name and isinstance(reason, str):
+                unavailable_lines.append(f"- {mode_name}：{reason}")
+        if unavailable_lines:
+            lines.extend(["", "未参与推荐：", *unavailable_lines])
+
     limitations = recommendation.get("limitations")
     if isinstance(limitations, list):
         valid_limitations = [item for item in limitations if isinstance(item, str)]
         if valid_limitations:
-            lines.extend(["", "数据限制："])
             mode_labels = {
                 "driving 方案": "驾车方案",
                 "transit 方案": "公共交通方案",
                 "walking 方案": "步行方案",
             }
-            lines.extend(
+            limitation_lines = [
                 "- "
                 + next(
                     (
@@ -428,7 +480,10 @@ def _render_planning_payload(payload: dict[str, object]) -> str | None:
                     item,
                 )
                 for item in valid_limitations
-            )
+                if "方案未参与评分：" not in item
+            ]
+            if limitation_lines:
+                lines.extend(["", "数据限制：", *limitation_lines])
     lines.extend(
         [
             "",
@@ -454,7 +509,7 @@ def render_user_response(messages: list[object]) -> str:
     current_turn_messages = _current_turn_messages(messages)
     planning_payload = _latest_planning_payload(current_turn_messages)
     deterministic_planning_answer = (
-        _render_planning_payload(planning_payload)
+        render_planning_payload(planning_payload)
         if planning_payload is not None
         else None
     )

@@ -15,8 +15,8 @@ def test_default_behavior_dataset_is_versioned_and_valid() -> None:
     dataset = load_eval_dataset()
 
     assert dataset.schema_version == 1
-    assert len(dataset.cases) == 8
-    assert len({case.name for case in dataset.cases}) == 8
+    assert len(dataset.cases) == 22
+    assert len({case.name for case in dataset.cases}) == 22
     assert {case.category for case in dataset.cases} == {
         "weather",
         "place",
@@ -88,6 +88,44 @@ def test_dataset_rejects_planning_tool_outside_expected_sequence() -> None:
                         "planning_tool_from_endpoints": (
                             "recommend_travel_plan"
                         ),
+                    }
+                ],
+            }
+        )
+
+
+def test_dataset_rejects_planning_args_without_planning_tool() -> None:
+    with pytest.raises(ValidationError, match="综合规划参数期望"):
+        EvalDataset.model_validate(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "name": "invalid_planning_args_case",
+                        "category": "route",
+                        "message": "明天下午出发",
+                        "expected_tool": None,
+                        "expected_planning_args": {
+                            "departure_time_text": "明天下午"
+                        },
+                    }
+                ],
+            }
+        )
+
+
+def test_dataset_rejects_empty_follow_up_message() -> None:
+    with pytest.raises(ValidationError, match="后续消息不能为空"):
+        EvalDataset.model_validate(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "name": "empty_follow_up_case",
+                        "category": "route",
+                        "message": "明天出发",
+                        "follow_up_messages": ["  "],
+                        "expected_tool": None,
                     }
                 ],
             }

@@ -1,7 +1,7 @@
 import pytest
 
 from travel_agent.domain.decision import TravelOption, TravelPreferences
-from travel_agent.domain.weather import CurrentWeather, Location
+from travel_agent.domain.weather import CurrentWeather, ForecastWeather, Location
 from travel_agent.services.travel_decision import (
     TravelDecisionError,
     recommend_travel_mode,
@@ -64,6 +64,25 @@ def build_weather(
     )
 
 
+def build_forecast_weather() -> ForecastWeather:
+    return ForecastWeather(
+        location=Location(
+            name="深圳",
+            country="中国",
+            admin1="广东",
+            latitude=22.54,
+            longitude=114.06,
+        ),
+        temperature_c=30,
+        apparent_temperature_c=34,
+        precipitation_mm=2,
+        wind_speed_kmh=8,
+        weather_code=61,
+        condition="小雨",
+        forecast_at="2026-09-12T15:00",
+    )
+
+
 def test_fastest_priority_recommends_driving() -> None:
     result = recommend_travel_mode(
         build_options(),
@@ -117,7 +136,10 @@ def test_failed_option_is_preserved_but_not_scored() -> None:
 
 
 def test_no_available_option_is_rejected() -> None:
-    with pytest.raises(TravelDecisionError, match="没有可参与比较"):
+    with pytest.raises(
+        TravelDecisionError,
+        match="没有符合用户硬约束的出行方案.*公交服务超时",
+    ):
         recommend_travel_mode(
             [
                 TravelOption(
@@ -127,6 +149,24 @@ def test_no_available_option_is_rejected() -> None:
                 )
             ]
         )
+
+
+def test_conflicting_constraints_report_every_excluded_mode() -> None:
+    with pytest.raises(TravelDecisionError) as exc_info:
+        recommend_travel_mode(
+            build_options(),
+            TravelPreferences(
+                can_drive=False,
+                max_walking_distance_m=100,
+                max_transfer_count=0,
+            ),
+        )
+
+    message = str(exc_info.value)
+    assert "没有符合用户硬约束的出行方案" in message
+    assert "walking: 步行距离 5000 米超过用户上限 100 米" in message
+    assert "transit: 步行距离 500 米超过用户上限 100 米" in message
+    assert "driving: 用户明确表示不能驾车" in message
 
 
 def test_cannot_drive_excludes_driving_option() -> None:
@@ -223,6 +263,21 @@ def test_heavy_rain_penalizes_walking_more_than_transit() -> None:
         for item in result.ranked_options
     }
     assert scores["transit"] > scores["walking"]
+
+
+def test_forecast_weather_reasons_are_not_described_as_current() -> None:
+    result = recommend_travel_mode(
+        build_options(),
+        weather=build_forecast_weather(),
+    )
+
+    reasons = [
+        reason
+        for item in result.ranked_options
+        for reason in item.reasons
+    ]
+    assert any("预计降水量" in reason for reason in reasons)
+    assert all("当前降水量" not in reason for reason in reasons)
 
 
 def test_extreme_temperature_reduces_walking_weather_fit() -> None:

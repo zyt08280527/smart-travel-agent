@@ -1,7 +1,9 @@
 """Evaluate important Agent behaviors with the real model and MCP tool."""
 
+import argparse
 import asyncio
 import hashlib
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -15,13 +17,41 @@ from travel_agent.evaluation.dataset import (
 )
 from travel_agent.evaluation.reporting import build_run_report, measure_case
 from travel_agent.evaluation.scoring import score_case, summarize_results
+from travel_agent.presentation import render_user_response
 
 REPORT_DIRECTORY = Path("artifacts/evals")
 
 
-async def main() -> None:
+def console_safe(value: object) -> str:
+    """Make diagnostic text printable on Windows legacy code pages."""
+    encoding = sys.stdout.encoding or "utf-8"
+    return str(value).encode(encoding, errors="backslashreplace").decode(encoding)
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse optional case filters for fast targeted regression runs."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        dest="case_names",
+        help="只运行指定案例；可重复传入",
+    )
+    return parser.parse_args()
+
+
+async def main(case_names: tuple[str, ...] = ()) -> None:
     """Run every case in one MCP session and print a compact report."""
     dataset = load_eval_dataset()
+    cases = dataset.cases
+    if case_names:
+        requested = set(case_names)
+        known = {case.name for case in cases}
+        unknown = sorted(requested - known)
+        if unknown:
+            raise SystemExit(f"未知评测案例: {', '.join(unknown)}")
+        cases = [case for case in cases if case.name in requested]
     case_results = []
     case_measurements = []
     started_at = datetime.now(UTC)
@@ -29,12 +59,17 @@ async def main() -> None:
     async with travel_agent_session() as (agent, tools):
         print(f"已加载 MCP 工具: {[tool.name for tool in tools]}")
 
-        for case in dataset.cases:
+        for case in cases:
             case_started = perf_counter()
-            result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": case.message}]},
-                config={"configurable": {"thread_id": str(uuid4())}},
-            )
+            config = {"configurable": {"thread_id": str(uuid4())}}
+            result = None
+            for message in (case.message, *case.follow_up_messages):
+                result = await agent.ainvoke(
+                    {"messages": [{"role": "user", "content": message}]},
+                    config=config,
+                )
+            if result is None:
+                raise RuntimeError("评测案例没有可执行消息")
             case_result = score_case(case, result["messages"])
             case_results.append(case_result)
             case_measurements.append(
@@ -49,6 +84,16 @@ async def main() -> None:
                 print(f"[FAIL] {case.name}")
                 for failure in case_result.failures:
                     print(f"       - {failure}")
+                print("\n实际最终回答：")
+                print(console_safe(render_user_response(result["messages"])))
+                print("\n实际工具调用：")
+                for message in result["messages"]:
+                    for tool_call in getattr(message, "tool_calls", []):
+                        diagnostic = (
+                            f"- {tool_call.get('name')}: "
+                            f"{tool_call.get('args')}"
+                        )
+                        print(console_safe(diagnostic))
             elif case_result.infrastructure_blocked:
                 print(f"[BLOCKED] {case.name}")
                 for error in case_result.infrastructure_errors:
@@ -126,4 +171,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    arguments = parse_args()
+    asyncio.run(main(tuple(arguments.case_names)))

@@ -8,7 +8,7 @@ from travel_agent.domain.decision import (
     TravelPriority,
     TravelRecommendation,
 )
-from travel_agent.domain.weather import CurrentWeather
+from travel_agent.domain.weather import ForecastWeather, WeatherData
 
 MetricGetter = Callable[[TravelOption], float | None]
 
@@ -159,7 +159,7 @@ def _lower_is_better_scores(
 
 def _weather_fit_score(
     option: TravelOption,
-    weather: CurrentWeather | None,
+    weather: WeatherData | None,
 ) -> tuple[float, list[str]]:
     """Score how suitable one travel mode is for observed weather."""
     if weather is None:
@@ -169,6 +169,7 @@ def _weather_fit_score(
     score = base_scores[option.mode]
     reasons: list[str] = []
 
+    weather_time_label = "预计" if isinstance(weather, ForecastWeather) else "当前"
     precipitation_penalties = {
         "walking": (20, 40, 60),
         "transit": (6, 12, 20),
@@ -176,13 +177,19 @@ def _weather_fit_score(
     }
     if weather.precipitation_mm >= 5:
         score -= precipitation_penalties[option.mode][2]
-        reasons.append(f"当前降水量 {weather.precipitation_mm:g} 毫米")
+        reasons.append(
+            f"{weather_time_label}降水量 {weather.precipitation_mm:g} 毫米"
+        )
     elif weather.precipitation_mm >= 1:
         score -= precipitation_penalties[option.mode][1]
-        reasons.append(f"当前降水量 {weather.precipitation_mm:g} 毫米")
+        reasons.append(
+            f"{weather_time_label}降水量 {weather.precipitation_mm:g} 毫米"
+        )
     elif weather.precipitation_mm > 0:
         score -= precipitation_penalties[option.mode][0]
-        reasons.append(f"当前存在少量降水 {weather.precipitation_mm:g} 毫米")
+        reasons.append(
+            f"{weather_time_label}存在少量降水 {weather.precipitation_mm:g} 毫米"
+        )
 
     apparent_temperature = weather.apparent_temperature_c
     temperature_penalties = {
@@ -207,13 +214,13 @@ def _weather_fit_score(
     }
     if weather.wind_speed_kmh >= 50:
         score -= wind_penalties[option.mode][2]
-        reasons.append(f"当前风速为 {weather.wind_speed_kmh:g} km/h")
+        reasons.append(f"{weather_time_label}风速为 {weather.wind_speed_kmh:g} km/h")
     elif weather.wind_speed_kmh >= 30:
         score -= wind_penalties[option.mode][1]
-        reasons.append(f"当前风速为 {weather.wind_speed_kmh:g} km/h")
+        reasons.append(f"{weather_time_label}风速为 {weather.wind_speed_kmh:g} km/h")
     elif weather.wind_speed_kmh >= 20:
         score -= wind_penalties[option.mode][0]
-        reasons.append(f"当前风速为 {weather.wind_speed_kmh:g} km/h")
+        reasons.append(f"{weather_time_label}风速为 {weather.wind_speed_kmh:g} km/h")
 
     return max(0.0, round(score, 2)), reasons
 
@@ -228,7 +235,7 @@ def _confidence(ranked_options: list[ScoredTravelOption]) -> float:
 def recommend_travel_mode(
     options: list[TravelOption],
     preferences: TravelPreferences | None = None,
-    weather: CurrentWeather | None = None,
+    weather: WeatherData | None = None,
 ) -> TravelRecommendation:
     """Rank available routes using deterministic user-priority weights."""
     preferences = preferences or TravelPreferences()
@@ -237,7 +244,15 @@ def recommend_travel_mode(
         preferences,
     )
     if not available:
-        raise TravelDecisionError("没有可参与比较的出行方案")
+        reasons = "；".join(
+            f"{option.mode}: {option.failure_reason}"
+            for option in unavailable
+            if option.failure_reason
+        )
+        message = "没有符合用户硬约束的出行方案"
+        if reasons:
+            message += f"：{reasons}"
+        raise TravelDecisionError(message)
 
     metric_scores = {
         "time": _lower_is_better_scores(available, lambda item: item.duration_s),
