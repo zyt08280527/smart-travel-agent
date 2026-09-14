@@ -60,6 +60,27 @@ def test_exact_departure_time_continues_to_model() -> None:
     assert result is None
 
 
+def test_date_only_arrival_goal_asks_for_exact_deadline() -> None:
+    result = build_middleware().before_model(
+        {"messages": [HumanMessage(content="明天前到达深圳市民中心")]},
+        object(),
+    )
+
+    assert result is not None
+    response = result["messages"][0]
+    assert isinstance(response, AIMessage)
+    assert "最晚到达时间" in str(response.content)
+
+
+def test_exact_arrival_goal_continues_to_model() -> None:
+    result = build_middleware().before_model(
+        {"messages": [HumanMessage(content="明天上午9点前到达深圳市民中心")]},
+        object(),
+    )
+
+    assert result is None
+
+
 def test_non_travel_date_request_is_not_intercepted() -> None:
     result = build_middleware().before_model(
         {"messages": [HumanMessage(content="明天深圳天气怎么样？")]},

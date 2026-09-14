@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -351,6 +352,15 @@ def _route_summary_line(scored: object) -> str | None:
         details.append(
             f"票价 {cost:g} 元" if cost is not None else "票价未提供"
         )
+    latest_departure_at = option.get("latest_departure_at")
+    if isinstance(latest_departure_at, str):
+        try:
+            formatted_departure = datetime.fromisoformat(
+                latest_departure_at
+            ).strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            formatted_departure = latest_departure_at
+        details.append(f"建议最晚 {formatted_departure} 出发")
     return f"- {mode_name}：{'；'.join(details)}"
 
 
@@ -386,6 +396,21 @@ def render_planning_payload(payload: dict[str, object]) -> str | None:
             if isinstance(source_text, str):
                 departure_line += f"（用户表达：{source_text}）"
             lines.extend([departure_line, ""])
+
+    arrival_deadline = context.get("arrival_deadline")
+    if isinstance(arrival_deadline, dict):
+        arrival_by = arrival_deadline.get("arrival_by")
+        source_text = arrival_deadline.get("source_text")
+        buffer_minutes = arrival_deadline.get("buffer_minutes")
+        if isinstance(arrival_by, str):
+            arrival_line = f"目标到达时间：{arrival_by}"
+            if isinstance(source_text, str):
+                arrival_line += f"（用户表达：{source_text}）"
+            lines.append(arrival_line)
+        if isinstance(buffer_minutes, int):
+            lines.append(f"反推缓冲：{buffer_minutes} 分钟")
+        if isinstance(arrival_by, str) or isinstance(buffer_minutes, int):
+            lines.append("")
 
     preferences = context.get("preferences")
     if isinstance(preferences, dict):
@@ -431,11 +456,16 @@ def render_planning_payload(payload: dict[str, object]) -> str | None:
         if wind is not None:
             weather_parts.append(f"风速 {wind:g} km/h")
         if weather_parts:
-            weather_label = (
-                "出发时段天气预报"
-                if isinstance(weather.get("forecast_at"), str)
-                else "当前天气"
-            )
+            if isinstance(arrival_deadline, dict) and isinstance(
+                weather.get("forecast_at"), str
+            ):
+                weather_label = "目标到达时段天气预报"
+            else:
+                weather_label = (
+                    "出发时段天气预报"
+                    if isinstance(weather.get("forecast_at"), str)
+                    else "当前天气"
+                )
             lines.extend([f"{weather_label}：{'，'.join(weather_parts)}。", ""])
 
     confidence = _number(recommendation.get("confidence"))

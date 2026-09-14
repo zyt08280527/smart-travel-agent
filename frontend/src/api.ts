@@ -108,6 +108,7 @@ export type PlanningOption = {
   cost_yuan?: number | null
   walking_distance_m?: number | null
   transfer_count?: number | null
+  latest_departure_at?: string | null
 }
 
 export type PlanningExcludedOption = {
@@ -128,6 +129,8 @@ export type PlanningResultCard = {
   recommended_mode: 'driving' | 'walking' | 'transit'
   previous_recommended_mode?: 'driving' | 'walking' | 'transit' | null
   reused_previous_data: boolean
+  arrival_by?: string | null
+  arrival_buffer_minutes?: number | null
   preferences: PlanningPreferences
   ranked_options: PlanningOption[]
   recommendation_variants?: PlanningVariant[]

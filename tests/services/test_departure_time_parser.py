@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from travel_agent.services.departure_time_parser import (
+    ArrivalTimeParser,
     DepartureTimeParseError,
     DepartureTimeParser,
 )
@@ -89,3 +90,17 @@ def test_parse_rejects_naive_reference_time() -> None:
             "明天下午出发",
             reference_at=datetime(2026, 9, 11, 10, 20),
         )
+
+
+def test_parse_arrival_deadline_preserves_user_expression_and_buffer() -> None:
+    result = ArrivalTimeParser().parse(
+        "下周一早上9点前到公司",
+        reference_at=REFERENCE_TIME,
+        buffer_minutes=20,
+    )
+
+    assert result is not None
+    assert result.arrival_by == datetime(2026, 9, 14, 9, 0, tzinfo=SHANGHAI)
+    assert result.precision == "exact"
+    assert result.source_text == "下周一早上9点前到公司"
+    assert result.buffer_minutes == 20

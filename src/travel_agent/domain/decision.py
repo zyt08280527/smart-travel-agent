@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from travel_agent.domain.journey_time import DepartureTime
+from travel_agent.domain.journey_time import ArrivalDeadline, DepartureTime
 from travel_agent.domain.weather import WeatherData
 
 TravelMode = Literal["walking", "transit", "driving"]
@@ -32,6 +33,7 @@ class JourneyContext(BaseModel):
     origin_name: str = Field(min_length=1)
     destination_name: str = Field(min_length=1)
     departure_time: DepartureTime | None = None
+    arrival_deadline: ArrivalDeadline | None = None
     weather: WeatherData | None = None
     preferences: TravelPreferences = Field(default_factory=TravelPreferences)
 
@@ -52,6 +54,7 @@ class TravelOption(BaseModel):
     tolls_yuan: float | None = Field(default=None, ge=0)
     taxi_cost_yuan: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
+    latest_departure_at: datetime | None = None
     traffic_status_counts: dict[str, int] = Field(default_factory=dict)
     attribution: str | None = None
     failure_reason: str | None = None
@@ -70,6 +73,11 @@ class TravelOption(BaseModel):
             raise ValueError(
                 "unavailable or failed travel options require failure_reason"
             )
+        if self.latest_departure_at is not None and (
+            self.latest_departure_at.tzinfo is None
+            or self.latest_departure_at.utcoffset() is None
+        ):
+            raise ValueError("latest_departure_at must include timezone information")
         return self
 
 

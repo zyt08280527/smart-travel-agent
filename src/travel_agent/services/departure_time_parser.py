@@ -4,7 +4,11 @@ import re
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from travel_agent.domain.journey_time import DeparturePrecision, DepartureTime
+from travel_agent.domain.journey_time import (
+    ArrivalDeadline,
+    DeparturePrecision,
+    DepartureTime,
+)
 
 _PERIOD_DEFAULT_HOURS = {
     "凌晨": 1,
@@ -200,3 +204,28 @@ class DepartureTimeParser:
             return time(hour=hour, minute=minute)
         except ValueError as exc:
             raise DepartureTimeParseError("出发时间的小时或分钟无效") from exc
+
+
+class ArrivalTimeParser:
+    """Resolve an arrival deadline with the same deterministic clock grammar."""
+
+    def __init__(self, timezone: str = "Asia/Shanghai") -> None:
+        self._parser = DepartureTimeParser(timezone)
+
+    def parse(
+        self,
+        text: str,
+        *,
+        reference_at: datetime,
+        buffer_minutes: int = 15,
+    ) -> ArrivalDeadline | None:
+        resolved = self._parser.parse(text, reference_at=reference_at)
+        if resolved is None:
+            return None
+        return ArrivalDeadline(
+            arrival_by=resolved.departure_at,
+            timezone=resolved.timezone,
+            precision=resolved.precision,
+            source_text=resolved.source_text,
+            buffer_minutes=buffer_minutes,
+        )

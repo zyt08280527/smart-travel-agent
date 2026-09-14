@@ -372,12 +372,18 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
                             content=(
                                 '{"context":{"origin_name":"粤海校区",'
                                 '"destination_name":"丽湖校区",'
+                                '"arrival_deadline":{'
+                                '"arrival_by":"2026-09-14T09:00:00+08:00",'
+                                '"buffer_minutes":15},'
                                 '"preferences":{"priority":"balanced",'
                                 '"can_drive":null,"max_walking_distance_m":null,'
                                 '"max_transfer_count":null}},"recommendation":{'
                                 '"recommended_mode":"driving","ranked_options":['
                                 '{"option":{"mode":"driving",'
-                                '"duration_s":1800},"scores":{"total":82}},'
+                                '"duration_s":1800,'
+                                '"latest_departure_at":'
+                                '"2026-09-14T08:15:00+08:00"},'
+                                '"scores":{"total":82}},'
                                 '{"option":{"mode":"transit",'
                                 '"duration_s":2700,"walking_distance_m":800,'
                                 '"transfer_count":1},"scores":{"total":77}}],'
@@ -409,6 +415,14 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
     assert card.recommended_mode == "driving"
     assert card.previous_recommended_mode is None
     assert card.reused_previous_data is False
+    assert card.arrival_by is not None
+    assert card.arrival_by.isoformat() == "2026-09-14T09:00:00+08:00"
+    assert card.arrival_buffer_minutes == 15
+    assert card.ranked_options[0].latest_departure_at is not None
+    assert (
+        card.ranked_options[0].latest_departure_at.isoformat()
+        == "2026-09-14T08:15:00+08:00"
+    )
     assert [option.mode for option in card.ranked_options] == ["driving", "transit"]
     assert [variant.priority for variant in card.recommendation_variants] == [
         "balanced",

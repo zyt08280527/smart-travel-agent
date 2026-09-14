@@ -11,6 +11,9 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from travel_agent.config import get_settings
+from travel_agent.middleware.arrival_deadline_routing import (
+    ArrivalDeadlineRoutingMiddleware,
+)
 from travel_agent.middleware.preference_replanning import (
     PreferenceReplanningMiddleware,
 )
@@ -60,9 +63,16 @@ SYSTEM_PROMPT = """你是智能出行助手。
 必须先解析并确认起终点坐标，再调用综合出行推荐工具；不得自行挑选一种交通方式。
 调用综合出行推荐工具时，只传递用户明确表达的驾车能力、步行上限、换乘上限和偏好；
 没有表达的可选约束必须使用默认值或 null，不得猜测。
-用户表达了出发时间时，必须把原始时间表达完整传入 departure_time_text，
-不得自行改写成猜测的时间戳；用户未表达时间时传 null。
+用户表达了出发时间时，必须把原始时间表达完整传入 departure_time_text；
+用户表达“几点前到达”“不迟于几点到”等到达目标时，必须把原始表达完整传入
+arrival_time_text，并将 departure_time_text 设为 null。不得同时传递出发和到达时间，
+也不得自行改写成猜测的时间戳；用户未表达对应时间时传 null。
+用户没有指定额外缓冲时，arrival_buffer_minutes 使用默认15分钟；只有用户明确要求
+预留多少分钟时才修改该值，不得猜测会议、机场等场景的缓冲时间。
 如果综合推荐工具提示只有日期而缺少时段，必须向用户追问上午、下午、晚上或具体时间。
+如果用户表达最晚到达目标但没有具体时刻，必须追问具体最晚到达时间。
+到达目标场景中，各方案的最晚出发时间来自“到达时刻-路线预计耗时-显式缓冲时间”；
+回答必须说明使用的缓冲分钟数，并保留路线为查询时快照的限制。
 综合推荐工具会并发查询当前天气或出发时段预报、驾车、步行和公共交通，并按确定性规则排序；
 回答时应说明主要推荐依据和数据缺失或接口失败等限制，不得把规则评分描述为模型预测。
 综合推荐工具成功返回后，必须直接基于该结果回答，不得继续调用单独的驾车、步行或公共交通工具；
@@ -161,6 +171,7 @@ async def travel_agent_session() -> AsyncIterator[
                 TravelRequestClarificationMiddleware(
                     get_settings().business_timezone
                 ),
+                ArrivalDeadlineRoutingMiddleware(),
                 PreferenceReplanningMiddleware(),
                 RecommendationExplanationMiddleware(),
                 HumanInTheLoopMiddleware(

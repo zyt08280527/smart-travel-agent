@@ -7,8 +7,55 @@ from travel_agent.presentation import (
     TRANSIT_LIVE_NOTICE,
     UV_DATA_NOTICE,
     WEATHER_CAPABILITY_NOTICE,
+    render_planning_payload,
     render_user_response,
 )
+
+
+def test_render_planning_payload_explains_arrival_deadline() -> None:
+    rendered = render_planning_payload(
+        {
+            "context": {
+                "origin_name": "深圳北站",
+                "destination_name": "深圳市民中心",
+                "arrival_deadline": {
+                    "arrival_by": "2026-09-14T09:00:00+08:00",
+                    "source_text": "明天9点前",
+                    "buffer_minutes": 15,
+                },
+                "preferences": {"priority": "balanced"},
+                "weather": {
+                    "condition": "小雨",
+                    "temperature_c": 26,
+                    "forecast_at": "2026-09-14T09:00:00+08:00",
+                },
+            },
+            "recommendation": {
+                "recommended_mode": "transit",
+                "ranked_options": [
+                    {
+                        "option": {
+                            "mode": "transit",
+                            "distance_m": 10000,
+                            "duration_s": 2700,
+                            "walking_distance_m": 500,
+                            "transfer_count": 1,
+                            "cost_yuan": 5,
+                            "latest_departure_at": "2026-09-14T08:00:00+08:00",
+                        },
+                        "scores": {"total": 84},
+                    }
+                ],
+            },
+        }
+    )
+
+    assert rendered is not None
+    assert "目标到达时间：2026-09-14T09:00:00+08:00" in rendered
+    assert "用户表达：明天9点前" in rendered
+    assert "反推缓冲：15 分钟" in rendered
+    assert "目标到达时段天气预报：小雨" in rendered
+    assert "建议最晚 2026-09-14 08:00 出发" in rendered
 
 ATTRIBUTION = (
     "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright"

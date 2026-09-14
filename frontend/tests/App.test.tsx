@@ -163,6 +163,8 @@ describe('App streaming chat', () => {
             recommended_mode: 'transit',
             previous_recommended_mode: 'driving',
             reused_previous_data: true,
+            arrival_by: '2026-09-14T09:00:00+08:00',
+            arrival_buffer_minutes: 15,
             preferences: {
               priority: 'cheapest',
               can_drive: false,
@@ -194,6 +196,7 @@ describe('App streaming chat', () => {
                     mode: 'transit',
                     total_score: 80,
                     duration_s: 2700,
+                    latest_departure_at: '2026-09-14T08:00:00+08:00',
                     cost_yuan: 5,
                     walking_distance_m: 800,
                     transfer_count: 1,
@@ -216,6 +219,7 @@ describe('App streaming chat', () => {
                     mode: 'transit',
                     total_score: 84,
                     duration_s: 2700,
+                    latest_departure_at: '2026-09-14T08:00:00+08:00',
                     cost_yuan: 5,
                     walking_distance_m: 800,
                     transfer_count: 1,
@@ -283,6 +287,9 @@ describe('App streaming chat', () => {
     expect(screen.getByText('驾车 → 公共交通')).toBeInTheDocument()
     expect(screen.getAllByText('优先省钱')).toHaveLength(2)
     expect(screen.getByText('不能驾车')).toBeInTheDocument()
+    expect(screen.getByText(/目标到达.*9\/14.*09:00/)).toBeInTheDocument()
+    expect(screen.getByText('已预留 15 分钟缓冲')).toBeInTheDocument()
+    expect(screen.getByText(/最晚.*9\/14.*08:00.*出发/)).toBeInTheDocument()
     expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
     expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()

@@ -40,7 +40,10 @@ def replan_from_payload(
         if not isinstance(raw_option, dict):
             continue
         option = TravelOption.model_validate(raw_option)
-        if option.status == "unavailable":
+        if option.status == "unavailable" and option.failure_reason and (
+            option.failure_reason == "用户明确表示不能驾车"
+            or "超过用户上限" in option.failure_reason
+        ):
             option = option.model_copy(
                 update={"status": "available", "failure_reason": None}
             )

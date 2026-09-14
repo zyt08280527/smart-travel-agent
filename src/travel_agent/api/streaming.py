@@ -219,6 +219,7 @@ def _planning_card_from_payload(
     if not isinstance(context, dict) or not isinstance(recommendation, dict):
         return None
     preferences = context.get("preferences")
+    arrival_deadline = context.get("arrival_deadline")
     ranked = recommendation.get("ranked_options")
     variants = payload.get("recommendation_variants", [])
     unavailable = recommendation.get("unavailable_options", [])
@@ -246,6 +247,7 @@ def _planning_card_from_payload(
                     cost_yuan=option.get("cost_yuan"),
                     walking_distance_m=option.get("walking_distance_m"),
                     transfer_count=option.get("transfer_count"),
+                    latest_departure_at=option.get("latest_departure_at"),
                 )
             )
         return cards
@@ -294,6 +296,16 @@ def _planning_card_from_payload(
             recommended_mode=recommendation["recommended_mode"],
             previous_recommended_mode=previous_recommended_mode,
             reused_previous_data=reused_previous_data,
+            arrival_by=(
+                arrival_deadline.get("arrival_by")
+                if isinstance(arrival_deadline, dict)
+                else None
+            ),
+            arrival_buffer_minutes=(
+                arrival_deadline.get("buffer_minutes")
+                if isinstance(arrival_deadline, dict)
+                else None
+            ),
             preferences=PlanningPreferenceCard.model_validate(preferences),
             ranked_options=ranked_cards,
             recommendation_variants=variant_cards,

@@ -8,7 +8,7 @@ from travel_agent.domain.decision import (
     TravelOption,
     TravelPreferences,
 )
-from travel_agent.domain.journey_time import DepartureTime
+from travel_agent.domain.journey_time import ArrivalDeadline, DepartureTime
 from travel_agent.domain.route import GeoPoint, RoutePlan
 from travel_agent.domain.transit import TransitPlan
 from travel_agent.domain.weather import WeatherData
@@ -47,18 +47,31 @@ class TravelPlanningService:
         destination: GeoPoint,
         preferences: TravelPreferences | None = None,
         departure_time: DepartureTime | None = None,
+        arrival_deadline: ArrivalDeadline | None = None,
         reference_at: datetime | None = None,
     ) -> TravelComparisonResult:
         """Run four independent provider calls without serial wait time."""
         preferences = preferences or TravelPreferences()
-        if departure_time is not None and reference_at is None:
-            raise ValueError("提供出发时间时必须同时提供当前参考时间")
+        if departure_time is not None and arrival_deadline is not None:
+            raise ValueError("不能同时指定出发时间和最晚到达时间")
+        if (
+            departure_time is not None or arrival_deadline is not None
+        ) and reference_at is None:
+            raise ValueError("提供出发或到达时间时必须同时提供当前参考时间")
+        weather_lookup_time = departure_time
+        if arrival_deadline is not None:
+            weather_lookup_time = DepartureTime(
+                departure_at=arrival_deadline.arrival_by,
+                timezone=arrival_deadline.timezone,
+                precision=arrival_deadline.precision,
+                source_text=arrival_deadline.source_text,
+            )
         weather_call = (
             self._weather_service.get_current_weather(city)
-            if departure_time is None
+            if weather_lookup_time is None
             else self._weather_service.get_weather_for_departure(
                 city,
-                departure_time,
+                weather_lookup_time,
                 reference_at=reference_at,
             )
         )
@@ -82,6 +95,12 @@ class TravelPlanningService:
             self._walking_option(walking_result),
             self._transit_option(transit_result),
         ]
+        if arrival_deadline is not None and reference_at is not None:
+            options = self._apply_arrival_deadline(
+                options,
+                arrival_deadline,
+                reference_at,
+            )
         recommendation = recommend_travel_mode(
             options,
             preferences,
@@ -118,6 +137,15 @@ class TravelPlanningService:
                     "用户仅提供时间段，天气按"
                     f" {departure_time.departure_at:%H:%M} 附近的逐小时预报估算"
                 )
+        if arrival_deadline is not None:
+            extra_limitations.extend(
+                [
+                    "天气按目标到达时段的逐小时预报估算",
+                    "各方案最晚出发时间按查询时路线耗时和"
+                    f" {arrival_deadline.buffer_minutes} 分钟缓冲反推；"
+                    "不代表未来路况或班次",
+                ]
+            )
         if extra_limitations:
             recommendation = recommendation.model_copy(
                 update={
@@ -135,12 +163,51 @@ class TravelPlanningService:
                 origin_name=origin_name,
                 destination_name=destination_name,
                 departure_time=departure_time,
+                arrival_deadline=arrival_deadline,
                 weather=weather,
                 preferences=preferences,
             ),
             recommendation=recommendation,
             recommendation_variants=recommendation_variants,
         )
+
+    @staticmethod
+    def _apply_arrival_deadline(
+        options: list[TravelOption],
+        arrival_deadline: ArrivalDeadline,
+        reference_at: datetime,
+    ) -> list[TravelOption]:
+        """Attach latest departures and reject schedules that already expired."""
+        scheduled: list[TravelOption] = []
+        for option in options:
+            if option.status != "available" or option.duration_s is None:
+                scheduled.append(option)
+                continue
+            latest_departure = arrival_deadline.latest_departure_at(
+                option.duration_s
+            )
+            if latest_departure < reference_at.astimezone(
+                latest_departure.tzinfo
+            ):
+                scheduled.append(
+                    option.model_copy(
+                        update={
+                            "status": "unavailable",
+                            "failure_reason": (
+                                "按照预计耗时和"
+                                f" {arrival_deadline.buffer_minutes} 分钟缓冲，"
+                                "最晚出发时间已过"
+                            ),
+                        }
+                    )
+                )
+                continue
+            scheduled.append(
+                option.model_copy(
+                    update={"latest_departure_at": latest_departure}
+                )
+            )
+        return scheduled
 
     @staticmethod
     def _driving_option(result: object) -> TravelOption:

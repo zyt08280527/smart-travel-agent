@@ -85,3 +85,38 @@ class DepartureTime(BaseModel):
         if self.departure_at.date() > last_forecast_date:
             return "out_of_range"
         return "forecast"
+
+
+class ArrivalDeadline(BaseModel):
+    """A required arrival instant and an explicit planning buffer."""
+
+    arrival_by: datetime
+    timezone: str = Field(default="Asia/Shanghai", min_length=1)
+    precision: DeparturePrecision
+    source_text: str = Field(min_length=1)
+    buffer_minutes: int = Field(default=15, ge=0, le=180)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
+
+    @model_validator(mode="after")
+    def normalize_arrival_timezone(self) -> "ArrivalDeadline":
+        if self.arrival_by.tzinfo is None or self.arrival_by.utcoffset() is None:
+            raise ValueError("arrival_by must include timezone information")
+        self.arrival_by = self.arrival_by.astimezone(ZoneInfo(self.timezone))
+        return self
+
+    def latest_departure_at(self, duration_s: float) -> datetime:
+        """Return the latest departure that preserves route time and buffer."""
+        if duration_s < 0:
+            raise ValueError("duration_s cannot be negative")
+        return self.arrival_by - timedelta(
+            seconds=duration_s,
+            minutes=self.buffer_minutes,
+        )

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -128,6 +129,7 @@ class PlanningOptionCard(BaseModel):
     cost_yuan: float | None = Field(default=None, ge=0)
     walking_distance_m: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
+    latest_departure_at: datetime | None = None
 
 
 class PlanningExcludedOptionCard(BaseModel):
@@ -160,6 +162,8 @@ class PlanningResultCard(BaseModel):
     recommended_mode: Literal["driving", "walking", "transit"]
     previous_recommended_mode: Literal["driving", "walking", "transit"] | None = None
     reused_previous_data: bool = False
+    arrival_by: datetime | None = None
+    arrival_buffer_minutes: int | None = Field(default=None, ge=0, le=180)
     preferences: PlanningPreferenceCard
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
     recommendation_variants: list[PlanningVariantCard] = Field(default_factory=list)

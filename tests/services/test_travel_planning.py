@@ -5,10 +5,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from travel_agent.domain.decision import TravelPreferences
-from travel_agent.domain.journey_time import DepartureTime
+from travel_agent.domain.journey_time import ArrivalDeadline, DepartureTime
 from travel_agent.domain.route import GeoPoint, RoutePlan, TrafficSegment
 from travel_agent.domain.transit import TransitLeg, TransitOption, TransitPlan
 from travel_agent.domain.weather import CurrentWeather, ForecastWeather, Location
+from travel_agent.services.travel_decision import TravelDecisionError
 from travel_agent.services.travel_planning import TravelPlanningService
 
 ORIGIN = GeoPoint(latitude=22.5359, longitude=113.9315)
@@ -308,4 +309,94 @@ async def test_compare_requires_reference_clock_with_departure_time() -> None:
             origin=ORIGIN,
             destination=DESTINATION,
             departure_time=departure,
+        )
+
+
+@pytest.mark.asyncio
+async def test_compare_back_calculates_latest_departures_from_arrival_goal() -> None:
+    weather_service = FakeWeatherService()
+    service = TravelPlanningService(
+        weather_service=weather_service,
+        driving_service=FakeRouteService(build_driving()),
+        walking_service=FakeRouteService(build_walking()),
+        transit_service=FakeTransitService(),
+    )
+    deadline = ArrivalDeadline(
+        arrival_by=datetime(2026, 9, 11, 12, 0, tzinfo=SHANGHAI),
+        precision="exact",
+        source_text="今天中午12点前到",
+        buffer_minutes=15,
+    )
+
+    result = await service.compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        arrival_deadline=deadline,
+        reference_at=REFERENCE_TIME,
+    )
+
+    assert result.context.arrival_deadline == deadline
+    latest_by_mode = {
+        item.option.mode: item.option.latest_departure_at
+        for item in result.recommendation.ranked_options
+    }
+    assert latest_by_mode == {
+        "driving": datetime(2026, 9, 11, 11, 15, tzinfo=SHANGHAI),
+        "walking": datetime(2026, 9, 11, 10, 45, tzinfo=SHANGHAI),
+        "transit": datetime(2026, 9, 11, 11, 5, tzinfo=SHANGHAI),
+    }
+    assert weather_service.departure_calls[0][1].departure_at == deadline.arrival_by
+    assert any(
+        "15 分钟缓冲反推" in limitation
+        for limitation in result.recommendation.limitations
+    )
+
+
+@pytest.mark.asyncio
+async def test_compare_rejects_departure_and_arrival_time_together() -> None:
+    departure = DepartureTime(
+        departure_at=REFERENCE_TIME + timedelta(hours=1),
+        precision="exact",
+        source_text="十一点出发",
+    )
+    deadline = ArrivalDeadline(
+        arrival_by=REFERENCE_TIME + timedelta(hours=2),
+        precision="exact",
+        source_text="十二点前到",
+    )
+
+    with pytest.raises(ValueError, match="不能同时指定"):
+        await build_service().compare(
+            city="深圳",
+            origin_name="粤海校区",
+            destination_name="丽湖校区",
+            origin=ORIGIN,
+            destination=DESTINATION,
+            departure_time=departure,
+            arrival_deadline=deadline,
+            reference_at=REFERENCE_TIME,
+        )
+
+
+@pytest.mark.asyncio
+async def test_compare_rejects_arrival_goal_when_every_latest_departure_passed() -> None:
+    deadline = ArrivalDeadline(
+        arrival_by=REFERENCE_TIME + timedelta(minutes=10),
+        precision="exact",
+        source_text="十点十分前到",
+        buffer_minutes=15,
+    )
+
+    with pytest.raises(TravelDecisionError, match="最晚出发时间已过"):
+        await build_service().compare(
+            city="深圳",
+            origin_name="粤海校区",
+            destination_name="丽湖校区",
+            origin=ORIGIN,
+            destination=DESTINATION,
+            arrival_deadline=deadline,
+            reference_at=REFERENCE_TIME,
         )

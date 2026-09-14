@@ -406,6 +406,23 @@ button:disabled {
   font-size: 18px;
 }
 
+.planning-arrival {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
+.planning-arrival small {
+  color: var(--text);
+}
+
 .planning-preferences {
   display: flex;
   flex-wrap: wrap;
@@ -481,6 +498,11 @@ button:disabled {
 .planning-ranking small {
   grid-column: 2;
   color: var(--text);
+}
+
+.planning-ranking .planning-latest-departure {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .planning-exclusions {

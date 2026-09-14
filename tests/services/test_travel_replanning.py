@@ -115,3 +115,47 @@ def test_replan_excludes_driving_and_reuses_existing_facts() -> None:
         for variant in variants
         for scored in variant["ranked_options"]
     )
+
+
+def test_replan_does_not_restore_an_expired_arrival_option() -> None:
+    payload = build_payload()
+    context = payload["context"]
+    assert isinstance(context, dict)
+    context["arrival_deadline"] = {
+        "arrival_by": "2026-09-14T09:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "precision": "exact",
+        "source_text": "明天9点前",
+        "buffer_minutes": 15,
+    }
+    recommendation = payload["recommendation"]
+    assert isinstance(recommendation, dict)
+    unavailable = recommendation["unavailable_options"]
+    assert isinstance(unavailable, list)
+    unavailable.append(
+        {
+            "mode": "transit",
+            "status": "unavailable",
+            "failure_reason": "按照预计耗时和 15 分钟缓冲，最晚出发时间已过",
+        }
+    )
+    ranked = recommendation["ranked_options"]
+    assert isinstance(ranked, list)
+    ranked[:] = [item for item in ranked if item["option"]["mode"] != "transit"]
+
+    result = replan_from_payload(
+        payload,
+        preference_updates={"priority": "cheapest"},
+    )
+
+    replanned = result["recommendation"]
+    assert all(
+        scored["option"]["mode"] != "transit"
+        for scored in replanned["ranked_options"]
+    )
+    transit = next(
+        option
+        for option in replanned["unavailable_options"]
+        if option["mode"] == "transit"
+    )
+    assert "最晚出发时间已过" in transit["failure_reason"]

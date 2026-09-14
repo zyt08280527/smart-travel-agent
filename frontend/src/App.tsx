@@ -309,6 +309,21 @@ const PRIORITY_LABELS = {
   fewest_transfers: '优先少换乘',
 }
 
+function formatPlanningDateTime(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(parsed)
+}
+
 function PlanningCard({ card }: { card: PlanningResultCard }) {
   const availableVariants = card.recommendation_variants?.length
     ? card.recommendation_variants
@@ -378,6 +393,15 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
         )}
       </div>
 
+      {card.arrival_by != null && (
+        <div className="planning-arrival" aria-label="到达时间安排">
+          <span>目标到达 {formatPlanningDateTime(card.arrival_by)}</span>
+          {card.arrival_buffer_minutes != null && (
+            <small>已预留 {card.arrival_buffer_minutes} 分钟缓冲</small>
+          )}
+        </div>
+      )}
+
       <div className="planning-variant-tabs" aria-label="切换推荐偏好">
         {availableVariants.map((variant) => (
           <button
@@ -405,6 +429,11 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
             <span>
               {option.total_score.toFixed(1)} 分 · {formatDuration(option.duration_s)}
             </span>
+            {option.latest_departure_at != null && (
+              <small className="planning-latest-departure">
+                最晚 {formatPlanningDateTime(option.latest_departure_at)} 出发
+              </small>
+            )}
             {(option.cost_yuan != null
               || option.walking_distance_m != null
               || option.transfer_count != null) && (

@@ -15,9 +15,14 @@ Clock = Callable[[], datetime]
 _TRAVEL_INTENT_PATTERN = re.compile(
     r"出发|去往|前往|去[^天气]|路线|交通方式|怎么走|如何去|规划行程"
 )
+_ARRIVAL_INTENT_PATTERN = re.compile(
+    r"最晚|不迟于|(?:点|时|:)\s*(?:前|之前)|"
+    r"(?:前|之前)\s*(?:到|到达)|(?:到|到达).*?(?:前|之前)"
+)
 _CLARIFICATION = (
     "请补充具体出发时段，例如上午、下午、晚上，或直接告诉我几点出发。"
 )
+_ARRIVAL_CLARIFICATION = "请补充具体最晚到达时间，例如明天上午9点前到达。"
 
 
 class TravelRequestClarificationMiddleware(AgentMiddleware):
@@ -55,7 +60,10 @@ class TravelRequestClarificationMiddleware(AgentMiddleware):
             return None
 
         content = messages[latest_human_index].content
-        if not isinstance(content, str) or not _TRAVEL_INTENT_PATTERN.search(content):
+        if not isinstance(content, str) or not (
+            _TRAVEL_INTENT_PATTERN.search(content)
+            or _ARRIVAL_INTENT_PATTERN.search(content)
+        ):
             return None
 
         departure = self._parser.parse(
@@ -64,7 +72,12 @@ class TravelRequestClarificationMiddleware(AgentMiddleware):
         )
         if departure is None or departure.precision != "date_only":
             return None
+        clarification = (
+            _ARRIVAL_CLARIFICATION
+            if _ARRIVAL_INTENT_PATTERN.search(content)
+            else _CLARIFICATION
+        )
         return {
             "jump_to": "end",
-            "messages": [AIMessage(content=_CLARIFICATION)],
+            "messages": [AIMessage(content=clarification)],
         }

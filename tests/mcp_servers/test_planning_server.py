@@ -44,6 +44,7 @@ class FakePlanningService:
                 origin_name=str(kwargs["origin_name"]),
                 destination_name=str(kwargs["destination_name"]),
                 departure_time=kwargs.get("departure_time"),
+                arrival_deadline=kwargs.get("arrival_deadline"),
                 preferences=kwargs["preferences"],
             ),
             recommendation=TravelRecommendation(
@@ -182,6 +183,70 @@ async def test_recommend_travel_plan_rejects_date_without_time_period(
     payload = _parse_text_result(result)
     assert payload["ok"] is False
     assert "补充上午、下午、晚上或具体时间" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_recommend_travel_plan_parses_arrival_deadline(monkeypatch) -> None:
+    fake = FakePlanningService()
+    reference_at = datetime(
+        2026,
+        9,
+        12,
+        10,
+        0,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
+    monkeypatch.setattr(planning_server, "TravelPlanningService", lambda: fake)
+    monkeypatch.setattr(
+        planning_server,
+        "get_settings",
+        lambda: SimpleNamespace(business_timezone="Asia/Shanghai"),
+    )
+    monkeypatch.setattr(planning_server, "_now", lambda _timezone: reference_at)
+
+    result = await planning_server.recommend_travel_plan(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin_latitude=22.5359,
+        origin_longitude=113.9315,
+        destination_latitude=22.6009,
+        destination_longitude=113.9879,
+        arrival_time_text="明天上午9点前到",
+        arrival_buffer_minutes=20,
+    )
+
+    payload = _parse_text_result(result)
+    deadline = fake.received["arrival_deadline"]
+    assert payload["context"]["arrival_deadline"]["buffer_minutes"] == 20
+    assert deadline is not None
+    assert deadline.arrival_by == datetime(
+        2026,
+        9,
+        13,
+        9,
+        0,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_recommend_travel_plan_rejects_both_time_intents() -> None:
+    result = await planning_server.recommend_travel_plan(
+        city="深圳",
+        origin_name="起点",
+        destination_name="终点",
+        origin_latitude=22.5,
+        origin_longitude=113.9,
+        destination_latitude=22.6,
+        destination_longitude=114.0,
+        departure_time_text="明天8点出发",
+        arrival_time_text="明天9点前到",
+    )
+
+    payload = _parse_text_result(result)
+    assert payload["ok"] is False
+    assert "不能同时指定" in payload["error"]
 
 
 @pytest.mark.asyncio
