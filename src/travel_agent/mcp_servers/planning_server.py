@@ -54,6 +54,12 @@ async def recommend_travel_plan(
         "least_walking",
         "fewest_transfers",
     ] = "balanced",
+    transit_strategy: Literal[
+        "recommended",
+        "subway_first",
+        "fewest_transfers",
+        "least_walking",
+    ] = "recommended",
     can_drive: bool | None = None,
     max_walking_distance_m: float | None = None,
     max_transfer_count: int | None = None,
@@ -80,6 +86,8 @@ async def recommend_travel_plan(
         destination_latitude: 终点WGS84纬度。
         destination_longitude: 终点WGS84经度。
         priority: 用户偏好，依次支持综合、最快、最便宜、少步行和少换乘。
+        transit_strategy: 公共交通内部选线策略，支持综合推荐、地铁优先、
+            少换乘和少步行。
         can_drive: 用户能否驾车；未知时传null。
         max_walking_distance_m: 用户可接受的最大步行距离；未说明时传null。
         max_transfer_count: 用户可接受的最大换乘次数；未说明时传null。
@@ -131,6 +139,7 @@ async def recommend_travel_plan(
             )
             preferences = TravelPreferences(
                 priority=priority,
+                transit_strategy=transit_strategy,
                 can_drive=can_drive,
                 max_walking_distance_m=max_walking_distance_m,
                 max_transfer_count=max_transfer_count,
@@ -145,6 +154,7 @@ async def recommend_travel_plan(
                 departure_time=departure_time,
                 arrival_deadline=arrival_deadline,
                 reference_at=reference_at,
+                route_snapshot_ttl_seconds=settings.route_snapshot_ttl_seconds,
             )
             text = result.model_dump_json(exclude_none=True)
         except ValidationError:

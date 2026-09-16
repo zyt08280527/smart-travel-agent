@@ -1,6 +1,6 @@
 import asyncio
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from travel_agent.domain.decision import (
     JourneyContext,
@@ -15,11 +15,19 @@ from travel_agent.domain.weather import WeatherData
 from travel_agent.services.amap_driving import AmapDrivingRouteService
 from travel_agent.services.amap_walking import AmapWalkingRouteService
 from travel_agent.services.transit import TransitService
+from travel_agent.services.transit_selection import select_transit_candidate
 from travel_agent.services.travel_decision import (
     recommend_travel_mode,
     recommend_travel_variants,
 )
 from travel_agent.services.weather import WeatherService
+
+TRANSIT_STRATEGY_CODES = {
+    "recommended": 0,
+    "fewest_transfers": 2,
+    "least_walking": 3,
+    "subway_first": 7,
+}
 
 
 class TravelPlanningService:
@@ -49,9 +57,12 @@ class TravelPlanningService:
         departure_time: DepartureTime | None = None,
         arrival_deadline: ArrivalDeadline | None = None,
         reference_at: datetime | None = None,
+        route_snapshot_ttl_seconds: int = 300,
     ) -> TravelComparisonResult:
         """Run four independent provider calls without serial wait time."""
         preferences = preferences or TravelPreferences()
+        if not 0 <= route_snapshot_ttl_seconds <= 86400:
+            raise ValueError("路线快照有效期必须在0到86400秒之间")
         if departure_time is not None and arrival_deadline is not None:
             raise ValueError("不能同时指定出发时间和最晚到达时间")
         if (
@@ -80,7 +91,13 @@ class TravelPlanningService:
                 weather_call,
                 self._driving_service.plan_driving_route(origin, destination),
                 self._walking_service.plan_walking_route(origin, destination),
-                self._transit_service.plan_transit_route(origin, destination),
+                self._transit_service.plan_transit_route(
+                    origin,
+                    destination,
+                    strategy=TRANSIT_STRATEGY_CODES[
+                        preferences.transit_strategy
+                    ],
+                ),
                 return_exceptions=True,
             )
         )
@@ -90,10 +107,15 @@ class TravelPlanningService:
             if isinstance(weather_result, WeatherData)
             else None
         )
+        transit_option, selected_transit_candidate_index = self._transit_option(
+            transit_result,
+            preferences=preferences,
+            weather=weather,
+        )
         options = [
             self._driving_option(driving_result),
             self._walking_option(walking_result),
-            self._transit_option(transit_result),
+            transit_option,
         ]
         if arrival_deadline is not None and reference_at is not None:
             options = self._apply_arrival_deadline(
@@ -157,11 +179,19 @@ class TravelPlanningService:
                 }
             )
 
+        route_snapshot_at = reference_at or datetime.now(UTC)
         return TravelComparisonResult(
             context=JourneyContext(
                 city=city,
                 origin_name=origin_name,
                 destination_name=destination_name,
+                origin=origin,
+                destination=destination,
+                route_snapshot_at=route_snapshot_at,
+                route_snapshot_expires_at=(
+                    route_snapshot_at
+                    + timedelta(seconds=route_snapshot_ttl_seconds)
+                ),
                 departure_time=departure_time,
                 arrival_deadline=arrival_deadline,
                 weather=weather,
@@ -169,6 +199,12 @@ class TravelPlanningService:
             ),
             recommendation=recommendation,
             recommendation_variants=recommendation_variants,
+            transit_candidates=(
+                transit_result.options
+                if isinstance(transit_result, TransitPlan)
+                else []
+            ),
+            selected_transit_candidate_index=selected_transit_candidate_index,
         )
 
     @staticmethod
@@ -254,20 +290,24 @@ class TravelPlanningService:
         )
 
     @staticmethod
-    def _transit_option(result: object) -> TravelOption:
+    def _transit_option(
+        result: object,
+        *,
+        preferences: TravelPreferences,
+        weather: WeatherData | None,
+    ) -> tuple[TravelOption, int | None]:
         if not isinstance(result, TransitPlan):
-            return TravelOption(
-                mode="transit",
-                status="failed",
-                failure_reason=f"公交路线服务失败：{result}",
+            return (
+                TravelOption(
+                    mode="transit",
+                    status="failed",
+                    failure_reason=f"公交路线服务失败：{result}",
+                ),
+                None,
             )
-        option = result.options[0]
-        return TravelOption(
-            mode="transit",
-            distance_m=option.distance_m,
-            duration_s=option.duration_s,
-            walking_distance_m=option.walking_distance_m,
-            cost_yuan=option.cost_yuan,
-            transfer_count=option.transfer_count,
+        return select_transit_candidate(
+            result.options,
             attribution=result.attribution,
+            preferences=preferences,
+            weather=weather,
         )

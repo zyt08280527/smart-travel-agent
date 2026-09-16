@@ -78,7 +78,10 @@ async def test_recommend_travel_plan_builds_preferences_and_returns_json(
     monkeypatch.setattr(
         planning_server,
         "get_settings",
-        lambda: SimpleNamespace(business_timezone="Asia/Shanghai"),
+        lambda: SimpleNamespace(
+            business_timezone="Asia/Shanghai",
+            route_snapshot_ttl_seconds=300,
+        ),
     )
 
     result = await planning_server.recommend_travel_plan(
@@ -90,6 +93,7 @@ async def test_recommend_travel_plan_builds_preferences_and_returns_json(
         destination_latitude=22.6009,
         destination_longitude=113.9879,
         priority="least_walking",
+        transit_strategy="subway_first",
         can_drive=False,
         max_walking_distance_m=1000,
         max_transfer_count=2,
@@ -100,6 +104,7 @@ async def test_recommend_travel_plan_builds_preferences_and_returns_json(
     preferences = fake.received["preferences"]
     assert isinstance(preferences, TravelPreferences)
     assert preferences.priority == "least_walking"
+    assert preferences.transit_strategy == "subway_first"
     assert preferences.can_drive is False
     assert preferences.max_walking_distance_m == 1000
     assert result.meta == {
@@ -127,7 +132,10 @@ async def test_recommend_travel_plan_parses_future_departure_text(
     monkeypatch.setattr(
         planning_server,
         "get_settings",
-        lambda: SimpleNamespace(business_timezone="Asia/Shanghai"),
+        lambda: SimpleNamespace(
+            business_timezone="Asia/Shanghai",
+            route_snapshot_ttl_seconds=300,
+        ),
     )
     monkeypatch.setattr(planning_server, "_now", lambda _timezone: reference_at)
 
@@ -165,7 +173,10 @@ async def test_recommend_travel_plan_rejects_date_without_time_period(
     monkeypatch.setattr(
         planning_server,
         "get_settings",
-        lambda: SimpleNamespace(business_timezone="Asia/Shanghai"),
+        lambda: SimpleNamespace(
+            business_timezone="Asia/Shanghai",
+            route_snapshot_ttl_seconds=300,
+        ),
     )
     monkeypatch.setattr(planning_server, "_now", lambda _timezone: reference_at)
 
@@ -200,7 +211,10 @@ async def test_recommend_travel_plan_parses_arrival_deadline(monkeypatch) -> Non
     monkeypatch.setattr(
         planning_server,
         "get_settings",
-        lambda: SimpleNamespace(business_timezone="Asia/Shanghai"),
+        lambda: SimpleNamespace(
+            business_timezone="Asia/Shanghai",
+            route_snapshot_ttl_seconds=300,
+        ),
     )
     monkeypatch.setattr(planning_server, "_now", lambda _timezone: reference_at)
 

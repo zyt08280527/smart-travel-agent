@@ -14,6 +14,9 @@ from travel_agent.config import get_settings
 from travel_agent.middleware.arrival_deadline_routing import (
     ArrivalDeadlineRoutingMiddleware,
 )
+from travel_agent.middleware.itinerary_save_grounding import (
+    ItinerarySaveGroundingMiddleware,
+)
 from travel_agent.middleware.preference_replanning import (
     PreferenceReplanningMiddleware,
 )
@@ -172,7 +175,9 @@ async def travel_agent_session() -> AsyncIterator[
                     get_settings().business_timezone
                 ),
                 ArrivalDeadlineRoutingMiddleware(),
-                PreferenceReplanningMiddleware(),
+                PreferenceReplanningMiddleware(
+                    get_settings().business_timezone
+                ),
                 RecommendationExplanationMiddleware(),
                 HumanInTheLoopMiddleware(
                     interrupt_on={
@@ -181,7 +186,10 @@ async def travel_agent_session() -> AsyncIterator[
                             "description": "请确认是否保存以下行程。",
                         }
                     }
-                )
+                ),
+                # after_model hooks run in reverse registration order. Keep this
+                # after HITL so save arguments are grounded before approval.
+                ItinerarySaveGroundingMiddleware(),
             ],
             checkpointer=checkpointer,
         )

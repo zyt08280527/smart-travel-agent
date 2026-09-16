@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from travel_agent.domain.journey_time import ArrivalDeadline, DepartureTime
+from travel_agent.domain.route import GeoPoint
+from travel_agent.domain.transit import TransitOption as TransitRouteOption
 from travel_agent.domain.weather import WeatherData
 
 TravelMode = Literal["walking", "transit", "driving"]
@@ -14,6 +16,12 @@ TravelPriority = Literal[
     "least_walking",
     "fewest_transfers",
 ]
+TransitStrategy = Literal[
+    "recommended",
+    "subway_first",
+    "fewest_transfers",
+    "least_walking",
+]
 OptionStatus = Literal["available", "unavailable", "failed"]
 
 
@@ -21,6 +29,7 @@ class TravelPreferences(BaseModel):
     """User constraints and priorities that can change a route recommendation."""
 
     priority: TravelPriority = "balanced"
+    transit_strategy: TransitStrategy = "recommended"
     can_drive: bool | None = None
     max_walking_distance_m: float | None = Field(default=None, ge=0)
     max_transfer_count: int | None = Field(default=None, ge=0)
@@ -32,10 +41,32 @@ class JourneyContext(BaseModel):
     city: str = Field(min_length=1)
     origin_name: str = Field(min_length=1)
     destination_name: str = Field(min_length=1)
+    origin: GeoPoint | None = None
+    destination: GeoPoint | None = None
+    route_snapshot_at: datetime | None = None
+    route_snapshot_expires_at: datetime | None = None
     departure_time: DepartureTime | None = None
     arrival_deadline: ArrivalDeadline | None = None
     weather: WeatherData | None = None
     preferences: TravelPreferences = Field(default_factory=TravelPreferences)
+
+    @model_validator(mode="after")
+    def validate_route_snapshot(self) -> "JourneyContext":
+        for field_name in ("route_snapshot_at", "route_snapshot_expires_at"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
+                raise ValueError(f"{field_name} must include timezone information")
+        if (
+            self.route_snapshot_at is not None
+            and self.route_snapshot_expires_at is not None
+            and self.route_snapshot_expires_at < self.route_snapshot_at
+        ):
+            raise ValueError(
+                "route_snapshot_expires_at cannot precede route_snapshot_at"
+            )
+        return self
 
 
 class TravelOption(BaseModel):
@@ -146,3 +177,20 @@ class TravelComparisonResult(BaseModel):
     recommendation_variants: list[TravelRecommendationVariant] = Field(
         default_factory=list
     )
+    transit_candidates: list[TransitRouteOption] = Field(default_factory=list)
+    selected_transit_candidate_index: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def selected_transit_candidate_must_exist(self) -> "TravelComparisonResult":
+        index = self.selected_transit_candidate_index
+        if index is None:
+            if self.transit_candidates:
+                raise ValueError(
+                    "selected_transit_candidate_index is required when candidates exist"
+                )
+            return self
+        if index >= len(self.transit_candidates):
+            raise ValueError(
+                "selected_transit_candidate_index must reference a candidate"
+            )
+        return self

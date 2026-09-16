@@ -73,7 +73,7 @@ class RouteResultCard(BaseModel):
 
 
 class TransitResultCard(BaseModel):
-    """Normalized first public-transport option for structured display."""
+    """Normalized public-transport alternatives for structured display."""
 
     type: Literal["transit"]
     option_count: int = Field(ge=1)
@@ -83,6 +83,7 @@ class TransitResultCard(BaseModel):
     cost_yuan: float | None = Field(default=None, ge=0)
     transfer_count: int = Field(ge=0)
     line_names: list[str]
+    options: list["PlanningTransitCandidateCard"] = Field(min_length=1)
     attribution: str = Field(min_length=1)
 
 
@@ -115,6 +116,12 @@ class PlanningPreferenceCard(BaseModel):
         "least_walking",
         "fewest_transfers",
     ]
+    transit_strategy: Literal[
+        "recommended",
+        "subway_first",
+        "fewest_transfers",
+        "least_walking",
+    ] = "recommended"
     can_drive: bool | None = None
     max_walking_distance_m: float | None = Field(default=None, ge=0)
     max_transfer_count: int | None = Field(default=None, ge=0)
@@ -153,6 +160,32 @@ class PlanningVariantCard(BaseModel):
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
 
 
+class PlanningTransitLegCard(BaseModel):
+    """One actionable step inside a concrete public-transport candidate."""
+
+    mode: Literal["walking", "bus", "subway", "railway", "taxi"]
+    distance_m: float = Field(ge=0)
+    duration_s: float | None = Field(default=None, ge=0)
+    instruction: str | None = None
+    line_name: str | None = None
+    departure_stop: str | None = None
+    arrival_stop: str | None = None
+    via_stop_count: int | None = Field(default=None, ge=0)
+
+
+class PlanningTransitCandidateCard(BaseModel):
+    """One concrete public-transport alternative from the provider snapshot."""
+
+    candidate_index: int = Field(ge=0)
+    selected: bool = False
+    duration_s: float = Field(ge=0)
+    cost_yuan: float | None = Field(default=None, ge=0)
+    walking_distance_m: float = Field(ge=0)
+    transfer_count: int = Field(ge=0)
+    line_names: list[str] = Field(default_factory=list)
+    legs: list[PlanningTransitLegCard] = Field(default_factory=list)
+
+
 class PlanningResultCard(BaseModel):
     """Structured recommendation summary for initial plans and local re-ranks."""
 
@@ -162,12 +195,20 @@ class PlanningResultCard(BaseModel):
     recommended_mode: Literal["driving", "walking", "transit"]
     previous_recommended_mode: Literal["driving", "walking", "transit"] | None = None
     reused_previous_data: bool = False
+    route_refreshed: bool = False
+    used_stale_snapshot: bool = False
+    refresh_failed: bool = False
+    route_snapshot_at: datetime | None = None
     arrival_by: datetime | None = None
     arrival_buffer_minutes: int | None = Field(default=None, ge=0, le=180)
     preferences: PlanningPreferenceCard
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
     recommendation_variants: list[PlanningVariantCard] = Field(default_factory=list)
     unavailable_options: list[PlanningExcludedOptionCard] = Field(default_factory=list)
+    transit_candidates: list[PlanningTransitCandidateCard] = Field(
+        default_factory=list
+    )
+    selected_transit_candidate_index: int | None = Field(default=None, ge=0)
 
 
 class AgentResponse(BaseModel):

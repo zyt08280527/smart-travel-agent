@@ -14,6 +14,8 @@ from travel_agent.api.schemas import (
     PlanningOptionCard,
     PlanningPreferenceCard,
     PlanningResultCard,
+    PlanningTransitCandidateCard,
+    PlanningTransitLegCard,
     PlanningVariantCard,
     RouteResultCard,
     TransitResultCard,
@@ -127,12 +129,59 @@ def _route_card(message: ToolMessage) -> RouteResultCard | None:
         return None
 
 
-def _transit_card(message: ToolMessage) -> TransitResultCard | None:
-    """Build a safe summary of the first public-transport option."""
-    if message.name != "plan_transit_route":
-        return None
-    payload = _tool_json_payload(message)
-    if payload is None or payload.get("ok") is False:
+def _transit_candidate_cards(
+    candidates: list[object],
+    *,
+    selected_index: int,
+) -> list[PlanningTransitCandidateCard]:
+    """Normalize provider alternatives into safe public-transport cards."""
+    cards: list[PlanningTransitCandidateCard] = []
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict):
+            continue
+        legs = candidate.get("legs", [])
+        line_names = (
+            list(
+                dict.fromkeys(
+                    leg["line_name"]
+                    for leg in legs
+                    if isinstance(leg, dict)
+                    and isinstance(leg.get("line_name"), str)
+                    and leg["line_name"]
+                )
+            )
+            if isinstance(legs, list)
+            else []
+        )
+        leg_cards = (
+            [
+                PlanningTransitLegCard.model_validate(leg)
+                for leg in legs
+                if isinstance(leg, dict)
+            ]
+            if isinstance(legs, list)
+            else []
+        )
+        cards.append(
+            PlanningTransitCandidateCard(
+                candidate_index=index,
+                selected=index == selected_index,
+                duration_s=candidate["duration_s"],
+                cost_yuan=candidate.get("cost_yuan"),
+                walking_distance_m=candidate["walking_distance_m"],
+                transfer_count=candidate["transfer_count"],
+                line_names=line_names,
+                legs=leg_cards,
+            )
+        )
+    return cards
+
+
+def _transit_card_from_payload(
+    payload: dict[str, object],
+) -> TransitResultCard | None:
+    """Build a safe structured view of every public-transport option."""
+    if payload.get("ok") is False:
         return None
     if payload.get("mode") != "transit":
         return None
@@ -140,25 +189,18 @@ def _transit_card(message: ToolMessage) -> TransitResultCard | None:
     options = payload.get("options")
     if not isinstance(options, list) or not options:
         return None
-    option = options[0]
+    selected_index = payload.get("selected_transit_candidate_index", 0)
+    if not isinstance(selected_index, int) or not 0 <= selected_index < len(options):
+        return None
+    option = options[selected_index]
     if not isinstance(option, dict):
         return None
 
-    line_names: list[str] = []
-    legs = option.get("legs", [])
-    if isinstance(legs, list):
-        for leg in legs:
-            if not isinstance(leg, dict):
-                continue
-            line_name = leg.get("line_name")
-            if (
-                isinstance(line_name, str)
-                and line_name
-                and line_name not in line_names
-            ):
-                line_names.append(line_name)
-
     try:
+        candidate_cards = _transit_candidate_cards(
+            options,
+            selected_index=selected_index,
+        )
         return TransitResultCard(
             type="transit",
             option_count=len(options),
@@ -167,11 +209,21 @@ def _transit_card(message: ToolMessage) -> TransitResultCard | None:
             walking_distance_m=option["walking_distance_m"],
             cost_yuan=option.get("cost_yuan"),
             transfer_count=option["transfer_count"],
-            line_names=line_names,
+            line_names=candidate_cards[selected_index].line_names,
+            options=candidate_cards,
             attribution=payload["attribution"],
         )
     except (KeyError, TypeError, ValidationError):
         return None
+
+
+def _transit_card(message: ToolMessage) -> TransitResultCard | None:
+    if message.name != "plan_transit_route":
+        return None
+    payload = _tool_json_payload(message)
+    if payload is None:
+        return None
+    return _transit_card_from_payload(payload)
 
 
 def _place_card(message: ToolMessage) -> PlaceResultCard | None:
@@ -211,6 +263,9 @@ def _planning_card_from_payload(
     payload: dict[str, object],
     *,
     reused_previous_data: bool = False,
+    route_refreshed: bool = False,
+    used_stale_snapshot: bool = False,
+    refresh_failed: bool = False,
     previous_recommended_mode: object = None,
 ) -> PlanningResultCard | None:
     """Build a recommendation card from a safe subset of planning data."""
@@ -223,11 +278,17 @@ def _planning_card_from_payload(
     ranked = recommendation.get("ranked_options")
     variants = payload.get("recommendation_variants", [])
     unavailable = recommendation.get("unavailable_options", [])
+    transit_candidates = payload.get("transit_candidates", [])
+    selected_transit_candidate_index = payload.get(
+        "selected_transit_candidate_index"
+    )
     if not isinstance(preferences, dict) or not isinstance(ranked, list):
         return None
     if not isinstance(variants, list):
         return None
     if not isinstance(unavailable, list):
+        return None
+    if not isinstance(transit_candidates, list):
         return None
 
     def ranked_cards_from(raw_ranked: list[object]) -> list[PlanningOptionCard]:
@@ -289,6 +350,10 @@ def _planning_card_from_payload(
                     reason=reason,
                 )
             )
+        transit_candidate_cards = _transit_candidate_cards(
+            transit_candidates,
+            selected_index=selected_transit_candidate_index,
+        )
         return PlanningResultCard(
             type="planning",
             origin_name=context["origin_name"],
@@ -296,6 +361,10 @@ def _planning_card_from_payload(
             recommended_mode=recommendation["recommended_mode"],
             previous_recommended_mode=previous_recommended_mode,
             reused_previous_data=reused_previous_data,
+            route_refreshed=route_refreshed,
+            used_stale_snapshot=used_stale_snapshot,
+            refresh_failed=refresh_failed,
+            route_snapshot_at=context.get("route_snapshot_at"),
             arrival_by=(
                 arrival_deadline.get("arrival_by")
                 if isinstance(arrival_deadline, dict)
@@ -310,6 +379,8 @@ def _planning_card_from_payload(
             ranked_options=ranked_cards,
             recommendation_variants=variant_cards,
             unavailable_options=excluded_cards,
+            transit_candidates=transit_candidate_cards,
+            selected_transit_candidate_index=selected_transit_candidate_index,
         )
     except (KeyError, TypeError, ValidationError):
         return None
@@ -321,11 +392,19 @@ def _planning_tool_card(message: ToolMessage) -> PlanningResultCard | None:
     payload = _tool_json_payload(message)
     if payload is None or payload.get("ok") is False:
         return None
-    return _planning_card_from_payload(payload)
+    return _planning_card_from_payload(
+        payload,
+        route_refreshed=message.tool_call_id.startswith("refresh-plan-"),
+    )
 
 
-def result_card_from_ai_message(message: AIMessage) -> PlanningResultCard | None:
-    """Expose a local re-rank stored on a middleware-generated AI message."""
+def result_card_from_ai_message(
+    message: AIMessage,
+) -> PlanningResultCard | TransitResultCard | None:
+    """Expose locally updated route state stored on an AI message."""
+    transit_payload = message.additional_kwargs.get("transit_route_payload")
+    if isinstance(transit_payload, dict):
+        return _transit_card_from_payload(transit_payload)
     payload = message.additional_kwargs.get("travel_planning_payload")
     metadata = message.additional_kwargs.get("travel_planning_update", {})
     if not isinstance(payload, dict) or not isinstance(metadata, dict):
@@ -333,6 +412,8 @@ def result_card_from_ai_message(message: AIMessage) -> PlanningResultCard | None
     return _planning_card_from_payload(
         payload,
         reused_previous_data=metadata.get("reused_previous_data") is True,
+        used_stale_snapshot=metadata.get("used_stale_snapshot") is True,
+        refresh_failed=metadata.get("refresh_failed") is True,
         previous_recommended_mode=metadata.get("previous_recommended_mode"),
     )
 

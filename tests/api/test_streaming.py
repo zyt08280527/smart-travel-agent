@@ -1,8 +1,10 @@
+import json
 from uuid import UUID
 
 import pytest
 from langchain.messages import AIMessage, AIMessageChunk, ToolMessage
 
+from tests.services.test_travel_replanning import build_payload
 from travel_agent.api.streaming import normalize_stream_part
 
 THREAD_ID = UUID("12345678-1234-5678-1234-567812345678")
@@ -266,8 +268,27 @@ def test_transit_tool_result_becomes_safe_structured_card() -> None:
                                 '"cost_yuan":null,'
                                 '"transfer_count":0,'
                                 '"legs":['
-                                '{"mode":"walking","line_name":null},'
-                                '{"mode":"bus","line_name":"深大校巴"}'
+                                '{"mode":"walking","distance_m":100.0,'
+                                '"duration_s":120.0,"instruction":"步行至站点",'
+                                '"line_name":null},'
+                                '{"mode":"bus","distance_m":15003.0,'
+                                '"duration_s":2700.0,"instruction":null,'
+                                '"line_name":"深大校巴",'
+                                '"departure_stop":"粤海校区",'
+                                '"arrival_stop":"丽湖校区",'
+                                '"via_stop_count":3}'
+                                ']},{"distance_m":16000.0,'
+                                '"duration_s":3000.0,'
+                                '"walking_distance_m":500.0,'
+                                '"cost_yuan":3.0,'
+                                '"transfer_count":1,'
+                                '"legs":['
+                                '{"mode":"subway","distance_m":15500.0,'
+                                '"duration_s":2500.0,"instruction":null,'
+                                '"line_name":"地铁5号线",'
+                                '"departure_stop":"粤海门",'
+                                '"arrival_stop":"塘朗",'
+                                '"via_stop_count":4}'
                                 ']}],'
                                 '"attribution":"高德地图 Web服务 API"}'
                             ),
@@ -288,12 +309,18 @@ def test_transit_tool_result_becomes_safe_structured_card() -> None:
     card = events[1].card
     assert card is not None
     assert card.type == "transit"
-    assert card.option_count == 1
+    assert card.option_count == 2
     assert card.duration_s == 2820.0
     assert card.walking_distance_m == 839.0
     assert card.cost_yuan is None
     assert card.transfer_count == 0
     assert card.line_names == ["深大校巴"]
+    assert len(card.options) == 2
+    assert card.options[0].selected is True
+    assert card.options[0].legs[0].instruction == "步行至站点"
+    assert card.options[0].legs[1].departure_stop == "粤海校区"
+    assert card.options[1].selected is False
+    assert card.options[1].line_names == ["地铁5号线"]
 
 
 def test_place_search_result_becomes_safe_structured_card() -> None:
@@ -372,6 +399,8 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
                             content=(
                                 '{"context":{"origin_name":"粤海校区",'
                                 '"destination_name":"丽湖校区",'
+                                '"route_snapshot_at":'
+                                '"2026-09-14T08:00:00+08:00",'
                                 '"arrival_deadline":{'
                                 '"arrival_by":"2026-09-14T09:00:00+08:00",'
                                 '"buffer_minutes":15},'
@@ -415,6 +444,11 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
     assert card.recommended_mode == "driving"
     assert card.previous_recommended_mode is None
     assert card.reused_previous_data is False
+    assert card.route_refreshed is False
+    assert card.used_stale_snapshot is False
+    assert card.refresh_failed is False
+    assert card.route_snapshot_at is not None
+    assert card.route_snapshot_at.isoformat() == "2026-09-14T08:00:00+08:00"
     assert card.arrival_by is not None
     assert card.arrival_by.isoformat() == "2026-09-14T09:00:00+08:00"
     assert card.arrival_buffer_minutes == 15
@@ -430,6 +464,150 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
     ]
     assert card.recommendation_variants[1].recommended_mode == "transit"
     assert card.recommendation_variants[1].ranked_options[0].cost_yuan == 5
+
+
+def test_stale_refresh_fallback_is_exposed_on_planning_card() -> None:
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "PreferenceReplanningMiddleware.before_model": {
+                    "messages": [
+                        AIMessage(
+                            content="使用过期快照降级",
+                            additional_kwargs={
+                                "travel_planning_payload": build_payload(),
+                                "travel_planning_update": {
+                                    "reused_previous_data": True,
+                                    "used_stale_snapshot": True,
+                                    "refresh_failed": True,
+                                },
+                            },
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    card = events[0].card
+    assert card is not None
+    assert card.type == "planning"
+    assert card.reused_previous_data is True
+    assert card.used_stale_snapshot is True
+    assert card.refresh_failed is True
+    assert card.route_snapshot_at is not None
+    assert card.route_snapshot_at.isoformat() == "2026-09-14T10:00:00+08:00"
+
+
+def test_planning_card_exposes_concrete_transit_candidates() -> None:
+    payload = build_payload()
+    payload["transit_candidates"] = [
+        {
+            "distance_m": 8_000,
+            "duration_s": 3_000,
+            "walking_distance_m": 300,
+            "cost_yuan": 4,
+            "transfer_count": 0,
+            "legs": [
+                {
+                    "mode": "walking",
+                    "distance_m": 300,
+                    "duration_s": 240,
+                    "instruction": "步行至地铁站",
+                },
+                {
+                    "mode": "subway",
+                    "distance_m": 7_700,
+                    "duration_s": 1_500,
+                    "line_name": "地铁5号线",
+                    "departure_stop": "大学城站",
+                    "arrival_stop": "西丽站",
+                    "via_stop_count": 2,
+                },
+            ],
+        },
+        {
+            "distance_m": 9_000,
+            "duration_s": 1_800,
+            "walking_distance_m": 900,
+            "cost_yuan": 7,
+            "transfer_count": 1,
+            "legs": [
+                {
+                    "mode": "bus",
+                    "distance_m": 4_000,
+                    "line_name": "M176路",
+                },
+                {
+                    "mode": "subway",
+                    "distance_m": 4_100,
+                    "line_name": "地铁1号线",
+                },
+            ],
+        },
+    ]
+    payload["selected_transit_candidate_index"] = 1
+
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            name="recommend_travel_plan",
+                            tool_call_id="call-plan-candidates",
+                            content=json.dumps(payload, ensure_ascii=False),
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    card = events[1].card
+    assert card is not None
+    assert card.type == "planning"
+    assert card.selected_transit_candidate_index == 1
+    assert len(card.transit_candidates) == 2
+    assert card.transit_candidates[0].selected is False
+    assert card.transit_candidates[0].line_names == ["地铁5号线"]
+    assert len(card.transit_candidates[0].legs) == 2
+    assert card.transit_candidates[0].legs[0].instruction == "步行至地铁站"
+    assert card.transit_candidates[0].legs[1].departure_stop == "大学城站"
+    assert card.transit_candidates[0].legs[1].via_stop_count == 2
+    assert card.transit_candidates[1].selected is True
+    assert card.transit_candidates[1].duration_s == 1_800
+    assert card.transit_candidates[1].line_names == ["M176路", "地铁1号线"]
+
+
+def test_expired_snapshot_refresh_is_exposed_on_planning_card() -> None:
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            name="recommend_travel_plan",
+                            tool_call_id="refresh-plan-123",
+                            content=json.dumps(build_payload(), ensure_ascii=False),
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    card = events[1].card
+    assert card is not None
+    assert card.type == "planning"
+    assert card.route_refreshed is True
+    assert card.route_snapshot_at is not None
 
 
 def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
@@ -516,3 +694,71 @@ def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
     assert card.preferences.can_drive is False
     assert card.recommendation_variants[0].priority == "cheapest"
     assert card.unavailable_options[0].reason == "用户明确表示不能驾车"
+
+
+def test_direct_transit_selection_ai_message_becomes_updated_card() -> None:
+    payload = {
+        "mode": "transit",
+        "origin": {"latitude": 22.53, "longitude": 113.93},
+        "destination": {"latitude": 22.59, "longitude": 113.99},
+        "origin_city_code": "0755",
+        "destination_city_code": "0755",
+        "strategy": 7,
+        "selected_transit_candidate_index": 1,
+        "options": [
+            {
+                "distance_m": 15_000,
+                "duration_s": 4_800,
+                "walking_distance_m": 900,
+                "cost_yuan": 4,
+                "transfer_count": 1,
+                "legs": [
+                    {
+                        "mode": "subway",
+                        "distance_m": 14_100,
+                        "line_name": "地铁5号线",
+                    }
+                ],
+            },
+            {
+                "distance_m": 14_000,
+                "duration_s": 4_200,
+                "walking_distance_m": 500,
+                "cost_yuan": 5,
+                "transfer_count": 2,
+                "legs": [
+                    {
+                        "mode": "subway",
+                        "distance_m": 13_500,
+                        "line_name": "地铁7号线",
+                    }
+                ],
+            },
+        ],
+        "attribution": "公交路线数据来源：高德地图 Web服务 API",
+    }
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "PreferenceReplanningMiddleware.before_model": {
+                    "messages": [
+                        AIMessage(
+                            content="已选择公共交通候选 2",
+                            additional_kwargs={"transit_route_payload": payload},
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    assert [event.type for event in events] == ["result_card"]
+    card = events[0].card
+    assert card is not None
+    assert card.type == "transit"
+    assert card.duration_s == 4_200
+    assert card.line_names == ["地铁7号线"]
+    assert card.options[0].selected is False
+    assert card.options[1].selected is True

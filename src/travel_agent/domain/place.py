@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -18,6 +20,7 @@ class PlaceSearchResult(BaseModel):
     query: str = Field(min_length=1)
     places: list[Place] = Field(default_factory=list)
     attribution: str = Field(min_length=1)
+    provider: Literal["openstreetmap", "amap"] = "openstreetmap"
 
 
 class RouteEndpointCandidates(BaseModel):

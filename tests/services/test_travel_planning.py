@@ -96,6 +96,75 @@ def build_transit() -> TransitPlan:
     )
 
 
+def build_transit_with_alternatives() -> TransitPlan:
+    return TransitPlan(
+        origin=ORIGIN,
+        destination=DESTINATION,
+        origin_city_code="0755",
+        destination_city_code="0755",
+        options=[
+            TransitOption(
+                distance_m=8_000,
+                duration_s=3_000,
+                walking_distance_m=300,
+                cost_yuan=4,
+                transfer_count=0,
+                legs=[TransitLeg(mode="walking", distance_m=300)],
+            ),
+            TransitOption(
+                distance_m=9_000,
+                duration_s=1_800,
+                walking_distance_m=900,
+                cost_yuan=7,
+                transfer_count=2,
+                legs=[TransitLeg(mode="walking", distance_m=900)],
+            ),
+        ],
+        attribution="amap transit",
+    )
+
+
+def build_transit_with_bus_and_subway() -> TransitPlan:
+    return TransitPlan(
+        origin=ORIGIN,
+        destination=DESTINATION,
+        origin_city_code="0755",
+        destination_city_code="0755",
+        strategy=7,
+        options=[
+            TransitOption(
+                distance_m=8_000,
+                duration_s=2_000,
+                walking_distance_m=200,
+                cost_yuan=3,
+                transfer_count=0,
+                legs=[
+                    TransitLeg(
+                        mode="bus",
+                        distance_m=7_800,
+                        line_name="校巴通勤车",
+                    )
+                ],
+            ),
+            TransitOption(
+                distance_m=9_000,
+                duration_s=3_000,
+                walking_distance_m=600,
+                cost_yuan=5,
+                transfer_count=1,
+                legs=[
+                    TransitLeg(
+                        mode="subway",
+                        distance_m=8_400,
+                        line_name="地铁5号线",
+                    )
+                ],
+            ),
+        ],
+        attribution="amap transit",
+    )
+
+
 class FakeWeatherService:
     def __init__(self, gate: ConcurrencyGate | None = None) -> None:
         self.gate = gate
@@ -157,10 +226,49 @@ class FakeTransitService:
         self.gate = gate
 
     async def plan_transit_route(
-        self, _origin: GeoPoint, _destination: GeoPoint
+        self,
+        _origin: GeoPoint,
+        _destination: GeoPoint,
+        strategy: int = 0,
     ) -> TransitPlan:
+        del strategy
         if self.gate:
             await self.gate.wait()
+        return build_transit()
+
+
+class FakeTransitAlternativesService:
+    async def plan_transit_route(
+        self,
+        _origin: GeoPoint,
+        _destination: GeoPoint,
+        strategy: int = 0,
+    ) -> TransitPlan:
+        del strategy
+        return build_transit_with_alternatives()
+
+
+class FakeBusAndSubwayService:
+    async def plan_transit_route(
+        self,
+        _origin: GeoPoint,
+        _destination: GeoPoint,
+        strategy: int = 0,
+    ) -> TransitPlan:
+        del strategy
+        return build_transit_with_bus_and_subway()
+
+
+class RecordingTransitService(FakeTransitService):
+    strategy: int | None = None
+
+    async def plan_transit_route(
+        self,
+        _origin: GeoPoint,
+        _destination: GeoPoint,
+        strategy: int = 0,
+    ) -> TransitPlan:
+        self.strategy = strategy
         return build_transit()
 
 
@@ -234,6 +342,132 @@ async def test_compare_normalizes_provider_results_before_scoring() -> None:
         "least_walking",
         "fewest_transfers",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("transit_strategy", "expected_provider_strategy"),
+    [
+        ("recommended", 0),
+        ("fewest_transfers", 2),
+        ("least_walking", 3),
+        ("subway_first", 7),
+    ],
+)
+async def test_compare_passes_public_transit_strategy_to_provider(
+    transit_strategy: str,
+    expected_provider_strategy: int,
+) -> None:
+    transit_service = RecordingTransitService()
+    service = TravelPlanningService(
+        weather_service=FakeWeatherService(),
+        driving_service=FakeRouteService(build_driving()),
+        walking_service=FakeRouteService(build_walking()),
+        transit_service=transit_service,
+    )
+
+    await service.compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        preferences=TravelPreferences(
+            transit_strategy=transit_strategy,  # type: ignore[arg-type]
+        ),
+    )
+
+    assert transit_service.strategy == expected_provider_strategy
+
+
+@pytest.mark.asyncio
+async def test_subway_first_selects_subway_instead_of_faster_bus() -> None:
+    service = TravelPlanningService(
+        weather_service=FakeWeatherService(),
+        driving_service=FakeRouteService(build_driving()),
+        walking_service=FakeRouteService(build_walking()),
+        transit_service=FakeBusAndSubwayService(),
+    )
+
+    result = await service.compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        preferences=TravelPreferences(transit_strategy="subway_first"),
+    )
+
+    assert result.selected_transit_candidate_index == 1
+    selected = result.transit_candidates[result.selected_transit_candidate_index]
+    assert any(leg.mode == "subway" for leg in selected.legs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("priority", "expected_duration_s", "expected_candidate_index"),
+    [
+        ("fastest", 1_800, 1),
+        ("cheapest", 3_000, 0),
+        ("least_walking", 3_000, 0),
+        ("fewest_transfers", 3_000, 0),
+    ],
+)
+async def test_compare_selects_transit_candidate_for_user_priority(
+    priority: str,
+    expected_duration_s: float,
+    expected_candidate_index: int,
+) -> None:
+    service = TravelPlanningService(
+        weather_service=FakeWeatherService(),
+        driving_service=FakeRouteService(build_driving()),
+        walking_service=FakeRouteService(build_walking()),
+        transit_service=FakeTransitAlternativesService(),
+    )
+
+    result = await service.compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        preferences=TravelPreferences(priority=priority),  # type: ignore[arg-type]
+    )
+
+    transit = next(
+        item.option
+        for item in result.recommendation.ranked_options
+        if item.option.mode == "transit"
+    )
+    assert transit.duration_s == expected_duration_s
+    assert len(result.transit_candidates) == 2
+    assert (
+        result.selected_transit_candidate_index == expected_candidate_index
+    )
+    assert (
+        result.transit_candidates[expected_candidate_index].duration_s
+        == expected_duration_s
+    )
+
+
+@pytest.mark.asyncio
+async def test_compare_records_route_snapshot_window() -> None:
+    result = await build_service().compare(
+        city="深圳",
+        origin_name="粤海校区",
+        destination_name="丽湖校区",
+        origin=ORIGIN,
+        destination=DESTINATION,
+        reference_at=REFERENCE_TIME,
+        route_snapshot_ttl_seconds=300,
+    )
+
+    assert result.context.origin == ORIGIN
+    assert result.context.destination == DESTINATION
+    assert result.context.route_snapshot_at == REFERENCE_TIME
+    assert result.context.route_snapshot_expires_at == REFERENCE_TIME + timedelta(
+        minutes=5
+    )
 
 
 @pytest.mark.asyncio

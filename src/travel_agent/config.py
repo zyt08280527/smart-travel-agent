@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     checkpoint_storage_path: Path = Path("data/checkpoints.sqlite")
     conversation_storage_path: Path = Path("data/conversations.sqlite")
     business_timezone: str = Field(default="Asia/Shanghai", min_length=1)
+    route_snapshot_ttl_seconds: int = Field(default=300, ge=0, le=86400)
     app_env: str = "development"
     log_level: str = "INFO"
 

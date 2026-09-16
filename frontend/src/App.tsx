@@ -15,6 +15,7 @@ import type {
   PendingAction,
   PlaceResultCard,
   PlanningResultCard,
+  PlanningTransitCandidate,
   ResultCard,
   RouteResultCard,
   TransitResultCard,
@@ -35,6 +36,23 @@ type StoredSession = {
   messages: ChatMessage[]
   threadId: string
   pendingActions: PendingAction[]
+}
+
+function isLatestRouteChoiceCard(
+  messages: ChatMessage[],
+  messageIndex: number,
+  cardIndex: number,
+): boolean {
+  for (let index = messageIndex; index < messages.length; index += 1) {
+    const cards = messages[index].cards ?? []
+    const startIndex = index === messageIndex ? cardIndex + 1 : 0
+    if (cards.slice(startIndex).some(
+      (card) => card.type === 'planning' || card.type === 'transit',
+    )) {
+      return false
+    }
+  }
+  return true
 }
 
 const SESSION_STORAGE_KEY = 'smart-travel-agent-session'
@@ -204,7 +222,15 @@ function RouteCard({ card }: { card: RouteResultCard }) {
   )
 }
 
-function TransitCard({ card }: { card: TransitResultCard }) {
+function TransitCard({
+  card,
+  onSelectTransitCandidate,
+  selectionDisabled,
+}: {
+  card: TransitResultCard
+  onSelectTransitCandidate?: (candidateIndex: number) => void
+  selectionDisabled?: boolean
+}) {
   const costText =
     card.cost_yuan == null ? '未提供' : `¥${card.cost_yuan.toFixed(2)}`
   const lineText =
@@ -249,6 +275,24 @@ function TransitCard({ card }: { card: TransitResultCard }) {
         <span>乘坐线路</span>
         <strong>{lineText}</strong>
       </div>
+      {(card.options?.length ?? 0) > 0 && (
+        <div className="planning-transit-candidates">
+          <div className="planning-transit-heading">
+            <strong>公共交通候选</strong>
+            <small>共 {card.options?.length} 条具体路线</small>
+          </div>
+          <ol>
+            {card.options?.map((candidate) => (
+              <TransitCandidateView
+                key={candidate.candidate_index}
+                candidate={candidate}
+                disabled={selectionDisabled}
+                onSelect={onSelectTransitCandidate}
+              />
+            ))}
+          </ol>
+        </div>
+      )}
       <p className="result-card-notice">
         静态方案不包含实时班次、车辆位置或到站信息，出发前请向运营方或实时导航确认。
       </p>
@@ -309,6 +353,119 @@ const PRIORITY_LABELS = {
   fewest_transfers: '优先少换乘',
 }
 
+const TRANSIT_STRATEGY_LABELS = {
+  recommended: '综合推荐',
+  subway_first: '地铁优先',
+  fewest_transfers: '少换乘',
+  least_walking: '少步行',
+}
+
+const TRANSIT_LEG_LABELS = {
+  walking: '步行',
+  bus: '公交',
+  subway: '地铁',
+  railway: '铁路',
+  taxi: '出租车',
+}
+
+function TransitCandidateView({
+  candidate,
+  disabled = false,
+  onSelect,
+}: {
+  candidate: PlanningTransitCandidate
+  disabled?: boolean
+  onSelect?: (candidateIndex: number) => void
+}) {
+  const summary = (
+    <>
+      <span className="planning-transit-title">
+        <strong>候选 {candidate.candidate_index + 1}</strong>
+        {candidate.selected && <em>当前路线</em>}
+      </span>
+      <span className="planning-transit-lines">
+        {candidate.line_names.length > 0
+          ? candidate.line_names.join(' → ')
+          : '线路信息未提供'}
+      </span>
+      <small>
+        {formatDuration(candidate.duration_s)} · 费用
+        {' '}{candidate.cost_yuan != null
+          ? `${candidate.cost_yuan.toFixed(0)} 元`
+          : '待确认'}
+        {' '}· 步行 {formatDistance(candidate.walking_distance_m)}
+        {' '}· 换乘 {candidate.transfer_count} 次
+      </small>
+    </>
+  )
+
+  return (
+    <li className={candidate.selected ? 'selected' : ''}>
+      {onSelect ? (
+        <button
+          type="button"
+          className="planning-transit-option"
+          aria-label={`选择公共交通候选 ${candidate.candidate_index + 1}`}
+          aria-pressed={candidate.selected}
+          disabled={disabled || candidate.selected}
+          onClick={() => onSelect(candidate.candidate_index)}
+        >
+          {summary}
+        </button>
+      ) : (
+        <div className="planning-transit-option planning-transit-option-readonly">
+          {summary}
+        </div>
+      )}
+      {(candidate.legs?.length ?? 0) > 0 && (
+        <details className="planning-transit-details">
+          <summary>查看完整路线</summary>
+          <ol aria-label={`候选 ${candidate.candidate_index + 1} 路线步骤`}>
+            {candidate.legs?.map((leg, legIndex) => (
+              <li key={`${candidate.candidate_index}-${legIndex}`}>
+                <span className={`transit-leg-mode ${leg.mode}`}>
+                  {TRANSIT_LEG_LABELS[leg.mode]}
+                </span>
+                <div>
+                  <strong>
+                    {leg.line_name
+                      ?? (leg.mode === 'walking'
+                        ? leg.instruction || '步行接驳'
+                        : TRANSIT_LEG_LABELS[leg.mode])}
+                  </strong>
+                  {leg.departure_stop && leg.arrival_stop && (
+                    <span>
+                      {leg.departure_stop} → {leg.arrival_stop}
+                      {leg.via_stop_count != null
+                        ? ` · 途经 ${leg.via_stop_count} 站`
+                        : ''}
+                    </span>
+                  )}
+                  <small>
+                    {formatDistance(leg.distance_m)}
+                    {leg.duration_s != null
+                      ? ` · ${formatDuration(leg.duration_s)}`
+                      : ''}
+                  </small>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </li>
+  )
+}
+
+const TRANSIT_STRATEGY_MESSAGES = {
+  recommended: '公共交通综合推荐',
+  subway_first: '公共交通改为地铁优先',
+  fewest_transfers: '公共交通改为少换乘',
+  least_walking: '公共交通改为少步行',
+}
+
+type TransitStrategy = keyof typeof TRANSIT_STRATEGY_LABELS
+
 function formatPlanningDateTime(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) {
@@ -324,7 +481,17 @@ function formatPlanningDateTime(value: string): string {
   }).format(parsed)
 }
 
-function PlanningCard({ card }: { card: PlanningResultCard }) {
+function PlanningCard({
+  card,
+  onSelectTransitStrategy,
+  onSelectTransitCandidate,
+  strategyChangeDisabled,
+}: {
+  card: PlanningResultCard
+  onSelectTransitStrategy?: (strategy: TransitStrategy) => void
+  onSelectTransitCandidate?: (candidateIndex: number) => void
+  strategyChangeDisabled?: boolean
+}) {
   const availableVariants = card.recommendation_variants?.length
     ? card.recommendation_variants
     : [{
@@ -367,7 +534,13 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
       <div className="result-card-heading">
         <div>
           <p className="result-card-kicker">
-            {card.reused_previous_data ? '本地重新评分' : '综合出行推荐'}
+            {card.used_stale_snapshot
+              ? '降级路线建议'
+              : card.route_refreshed
+              ? '路线已刷新'
+              : card.reused_previous_data
+                ? '本地重新评分'
+                : '综合出行推荐'}
           </p>
           <h4>{card.origin_name} → {card.destination_name}</h4>
         </div>
@@ -458,6 +631,48 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
         ))}
       </ol>
 
+      {(card.transit_candidates?.length ?? 0) > 0 && (
+        <div className="planning-transit-candidates">
+          <div className="planning-transit-heading">
+            <strong>公共交通候选</strong>
+            <small>已比较 {card.transit_candidates?.length} 条具体路线</small>
+          </div>
+          <div
+            className="planning-transit-strategies"
+            aria-label="选择公共交通策略"
+          >
+            {(Object.entries(TRANSIT_STRATEGY_LABELS) as Array<
+              [TransitStrategy, string]
+            >).map(([strategy, label]) => {
+              const activeStrategy = card.preferences.transit_strategy
+                ?? 'recommended'
+              return (
+                <button
+                  type="button"
+                  key={strategy}
+                  className={strategy === activeStrategy ? 'active' : ''}
+                  aria-pressed={strategy === activeStrategy}
+                  disabled={strategyChangeDisabled}
+                  onClick={() => onSelectTransitStrategy?.(strategy)}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <ol>
+            {card.transit_candidates?.map((candidate) => (
+              <TransitCandidateView
+                key={candidate.candidate_index}
+                candidate={candidate}
+                disabled={strategyChangeDisabled}
+                onSelect={onSelectTransitCandidate}
+              />
+            ))}
+          </ol>
+        </div>
+      )}
+
       {card.unavailable_options.length > 0 && (
         <div className="planning-exclusions">
           <strong>未参与推荐</strong>
@@ -471,16 +686,58 @@ function PlanningCard({ card }: { card: PlanningResultCard }) {
         </div>
       )}
 
-      {card.reused_previous_data && (
+      {card.used_stale_snapshot && (
+        <p className="planning-stale-warning" role="alert">
+          路线刷新失败，当前使用
+          {card.route_snapshot_at != null
+            ? ` ${formatPlanningDateTime(card.route_snapshot_at)} 的`
+            : '上一轮'}
+          过期快照重新评分，仅供临时参考。
+        </p>
+      )}
+      {!card.used_stale_snapshot && card.route_refreshed && (
         <p className="result-card-time">
-          复用上一轮路线与天气快照，本轮未重新请求外部服务。
+          路线与天气已自动重新查询
+          {card.route_snapshot_at != null
+            ? `，路线数据更新于 ${formatPlanningDateTime(card.route_snapshot_at)}`
+            : ''}
+          。
+        </p>
+      )}
+      {!card.used_stale_snapshot
+        && !card.route_refreshed
+        && card.reused_previous_data && (
+        <p className="result-card-time">
+          复用
+          {card.route_snapshot_at != null
+            ? ` ${formatPlanningDateTime(card.route_snapshot_at)} 的`
+            : '上一轮'}
+          路线与天气快照，本轮未重新请求外部服务。
+        </p>
+      )}
+      {!card.route_refreshed
+        && !card.used_stale_snapshot
+        && !card.reused_previous_data
+        && card.route_snapshot_at != null && (
+        <p className="result-card-time">
+          路线数据更新于 {formatPlanningDateTime(card.route_snapshot_at)}。
         </p>
       )}
     </section>
   )
 }
 
-function ResultCardView({ card }: { card: ResultCard }) {
+function ResultCardView({
+  card,
+  onSelectTransitStrategy,
+  onSelectTransitCandidate,
+  strategyChangeDisabled,
+}: {
+  card: ResultCard
+  onSelectTransitStrategy?: (strategy: TransitStrategy) => void
+  onSelectTransitCandidate?: (candidateIndex: number) => void
+  strategyChangeDisabled?: boolean
+}) {
   if (card.type === 'weather') {
     return <WeatherCard card={card} />
   }
@@ -488,13 +745,26 @@ function ResultCardView({ card }: { card: ResultCard }) {
     return <RouteCard card={card} />
   }
   if (card.type === 'transit') {
-    return <TransitCard card={card} />
+    return (
+      <TransitCard
+        card={card}
+        onSelectTransitCandidate={onSelectTransitCandidate}
+        selectionDisabled={strategyChangeDisabled}
+      />
+    )
   }
   if (card.type === 'place') {
     return <PlaceCard card={card} />
   }
   if (card.type === 'planning') {
-    return <PlanningCard card={card} />
+    return (
+      <PlanningCard
+        card={card}
+        onSelectTransitStrategy={onSelectTransitStrategy}
+        onSelectTransitCandidate={onSelectTransitCandidate}
+        strategyChangeDisabled={strategyChangeDisabled}
+      />
+    )
   }
   return null
 }
@@ -625,10 +895,11 @@ function App() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    const trimmedMessage = message.trim()
+  async function sendUserMessage(
+    rawMessage: string,
+    clearComposer = false,
+  ) {
+    const trimmedMessage = rawMessage.trim()
     if (!trimmedMessage || isSending || pendingActions.length > 0) {
       return
     }
@@ -650,7 +921,9 @@ function App() {
       userMessage,
       assistantMessage,
     ])
-    setMessage('')
+    if (clearComposer) {
+      setMessage('')
+    }
     setIsSending(true)
     setChatError('')
     setActivityText('Agent 正在分析问题……')
@@ -744,6 +1017,11 @@ function App() {
       setIsSending(false)
       setActivityText('')
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await sendUserMessage(message, true)
   }
 
   async function handleDecision(decision: ApprovalDecision) {
@@ -931,7 +1209,7 @@ function App() {
         )}
 
         <div className="message-list" aria-live="polite">
-          {messages.map((chatMessage) => (
+          {messages.map((chatMessage, messageIndex) => (
             <article
               key={chatMessage.id}
               className={`message message-${chatMessage.role}`}
@@ -944,12 +1222,29 @@ function App() {
                   chatMessage.content
                 )}
               </div>
-              {chatMessage.cards?.map((card, index) => (
-                <ResultCardView
-                  key={`${card.type}-${index}`}
-                  card={card}
-                />
-              ))}
+              {chatMessage.cards?.map((card, index) => {
+                const cardIsLatest = !['planning', 'transit'].includes(card.type)
+                  || isLatestRouteChoiceCard(messages, messageIndex, index)
+                return (
+                  <ResultCardView
+                    key={`${card.type}-${index}`}
+                    card={card}
+                    strategyChangeDisabled={
+                      isSending
+                      || pendingActions.length > 0
+                      || !cardIsLatest
+                    }
+                    onSelectTransitStrategy={(strategy) => {
+                      void sendUserMessage(TRANSIT_STRATEGY_MESSAGES[strategy])
+                    }}
+                    onSelectTransitCandidate={(candidateIndex) => {
+                      void sendUserMessage(
+                        `选择公共交通候选${candidateIndex + 1}`,
+                      )
+                    }}
+                  />
+                )
+              })}
             </article>
           ))}
         </div>

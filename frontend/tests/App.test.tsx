@@ -149,6 +149,89 @@ describe('App streaming chat', () => {
     )
   })
 
+  test('renders every direct public-transport candidate and its legs', async () => {
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      const events: AgentStreamEvent[] = [
+        { type: 'run_started', thread_id: 'thread-transit' },
+        {
+          type: 'result_card',
+          thread_id: 'thread-transit',
+          card: {
+            type: 'transit',
+            option_count: 2,
+            distance_m: 15103,
+            duration_s: 2820,
+            walking_distance_m: 839,
+            cost_yuan: 4,
+            transfer_count: 0,
+            line_names: ['地铁5号线'],
+            options: [
+              {
+                candidate_index: 0,
+                selected: true,
+                duration_s: 2820,
+                cost_yuan: 4,
+                walking_distance_m: 839,
+                transfer_count: 0,
+                line_names: ['地铁5号线'],
+                legs: [{
+                  mode: 'subway',
+                  distance_m: 14000,
+                  duration_s: 2200,
+                  line_name: '地铁5号线',
+                  departure_stop: '粤海门',
+                  arrival_stop: '塘朗',
+                  via_stop_count: 4,
+                }],
+              },
+              {
+                candidate_index: 1,
+                selected: false,
+                duration_s: 3000,
+                cost_yuan: 5,
+                walking_distance_m: 600,
+                transfer_count: 1,
+                line_names: ['地铁1号线', '地铁5号线'],
+                legs: [],
+              },
+            ],
+            attribution: '公交路线数据来源：高德地图 Web服务 API',
+          },
+        },
+        {
+          type: 'final',
+          thread_id: 'thread-transit',
+          answer: '已完成公共交通路线规划。',
+        },
+        { type: 'done', thread_id: 'thread-transit' },
+      ]
+      for (const event of events) {
+        onEvent(event)
+      }
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('后端已连接，当前加载 1 个 Agent 工具。')
+    await user.type(screen.getByLabelText('输入你的出行问题'), '规划地铁路线')
+    await user.click(screen.getByRole('button', { name: '发送问题' }))
+
+    expect(await screen.findByText('公共交通候选')).toBeInTheDocument()
+    expect(screen.getByText('候选 2')).toBeInTheDocument()
+    await user.click(screen.getByText('查看完整路线'))
+    expect(screen.getByText('粤海门 → 塘朗 · 途经 4 站')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', {
+      name: '选择公共交通候选 2',
+    }))
+    await waitFor(() => {
+      expect(streamChatMock).toHaveBeenLastCalledWith(
+        '选择公共交通候选2',
+        'thread-transit',
+        expect.any(Function),
+      )
+    })
+  })
+
   test('renders preference changes and exclusions from a planning card', async () => {
     streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
       const events: AgentStreamEvent[] = [
@@ -163,10 +246,14 @@ describe('App streaming chat', () => {
             recommended_mode: 'transit',
             previous_recommended_mode: 'driving',
             reused_previous_data: true,
+            route_refreshed: false,
+            used_stale_snapshot: false,
+            refresh_failed: false,
             arrival_by: '2026-09-14T09:00:00+08:00',
             arrival_buffer_minutes: 15,
             preferences: {
               priority: 'cheapest',
+              transit_strategy: 'subway_first',
               can_drive: false,
               max_walking_distance_m: 1000,
               max_transfer_count: 1,
@@ -257,6 +344,44 @@ describe('App streaming chat', () => {
                 ],
               },
             ],
+            transit_candidates: [
+              {
+                candidate_index: 0,
+                selected: false,
+                duration_s: 3000,
+                cost_yuan: 4,
+                walking_distance_m: 300,
+                transfer_count: 0,
+                line_names: ['地铁5号线'],
+                legs: [
+                  {
+                    mode: 'walking',
+                    distance_m: 300,
+                    duration_s: 240,
+                    instruction: '步行至大学城站',
+                  },
+                  {
+                    mode: 'subway',
+                    distance_m: 7700,
+                    duration_s: 1500,
+                    line_name: '地铁5号线',
+                    departure_stop: '大学城站',
+                    arrival_stop: '西丽站',
+                    via_stop_count: 2,
+                  },
+                ],
+              },
+              {
+                candidate_index: 1,
+                selected: true,
+                duration_s: 1800,
+                cost_yuan: 7,
+                walking_distance_m: 900,
+                transfer_count: 1,
+                line_names: ['M176路', '地铁1号线'],
+              },
+            ],
+            selected_transit_candidate_index: 1,
             unavailable_options: [
               {
                 mode: 'driving',
@@ -292,15 +417,96 @@ describe('App streaming chat', () => {
     expect(screen.getByText(/最晚.*9\/14.*08:00.*出发/)).toBeInTheDocument()
     expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
     expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
+    expect(screen.getByText('公共交通候选')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '地铁优先' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('已比较 2 条具体路线')).toBeInTheDocument()
+    await user.click(screen.getAllByText('查看完整路线').at(-2)!)
+    expect(screen.getByText('步行至大学城站')).toBeInTheDocument()
+    expect(screen.getByText('大学城站 → 西丽站 · 途经 2 站'))
+      .toBeInTheDocument()
+    expect(screen.getByText('7.7 公里 · 25 分钟')).toBeInTheDocument()
+    expect(screen.getByText('候选 2')).toBeInTheDocument()
+    expect(screen.getByText('M176路 → 地铁1号线')).toBeInTheDocument()
+    expect(screen.getByText('当前路线')).toBeInTheDocument()
+    expect(screen.getByText('30 分钟 · 费用 7 元 · 步行 900 米 · 换乘 1 次'))
+      .toBeInTheDocument()
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '优先少换乘' }))
     expect(screen.getByText('该偏好推荐')).toBeInTheDocument()
-    expect(screen.getByText('步行')).toBeInTheDocument()
+    expect(screen.getAllByText('步行').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('1. 步行')).toBeInTheDocument()
     expect(screen.getByText('费用 0 元 · 步行 12.5 公里 · 换乘 0 次'))
       .toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '少步行' }))
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('公共交通改为少步行')
+
+    const candidateButtons = screen.getAllByRole('button', {
+      name: '选择公共交通候选 1',
+    })
+    expect(candidateButtons[0]).toBeDisabled()
+    expect(candidateButtons.at(-1)).not.toBeDisabled()
+    await user.click(candidateButtons.at(-1)!)
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('选择公共交通候选1')
+  })
+
+  test('renders an explicit warning for a stale route fallback', async () => {
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      const events: AgentStreamEvent[] = [
+        { type: 'run_started', thread_id: 'thread-stale-fallback' },
+        {
+          type: 'result_card',
+          thread_id: 'thread-stale-fallback',
+          card: {
+            type: 'planning',
+            origin_name: '粤海校区',
+            destination_name: '丽湖校区',
+            recommended_mode: 'transit',
+            reused_previous_data: true,
+            route_refreshed: false,
+            used_stale_snapshot: true,
+            refresh_failed: true,
+            route_snapshot_at: '2026-09-14T10:00:00+08:00',
+            preferences: { priority: 'balanced', can_drive: false },
+            ranked_options: [
+              {
+                mode: 'transit',
+                total_score: 80,
+                duration_s: 2700,
+                walking_distance_m: 800,
+                transfer_count: 1,
+              },
+            ],
+            unavailable_options: [],
+          },
+        },
+        {
+          type: 'final',
+          thread_id: 'thread-stale-fallback',
+          answer: '当前使用过期路线快照。',
+        },
+        { type: 'done', thread_id: 'thread-stale-fallback' },
+      ]
+      for (const event of events) {
+        onEvent(event)
+      }
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('后端已连接，当前加载 1 个 Agent 工具。')
+    await user.type(screen.getByLabelText('输入你的出行问题'), '不能开车呢')
+    await user.click(screen.getByRole('button', { name: '发送问题' }))
+
+    expect(await screen.findByText('降级路线建议')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /路线刷新失败.*9\/14.*10:00.*过期快照.*仅供临时参考/,
+    )
   })
 
   test.each([

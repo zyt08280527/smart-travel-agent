@@ -71,6 +71,7 @@ export type TransitResultCard = {
   cost_yuan?: number | null
   transfer_count: number
   line_names: string[]
+  options?: PlanningTransitCandidate[]
   attribution: string
 }
 
@@ -96,6 +97,11 @@ export type PlanningPreferences = {
     | 'cheapest'
     | 'least_walking'
     | 'fewest_transfers'
+  transit_strategy?:
+    | 'recommended'
+    | 'subway_first'
+    | 'fewest_transfers'
+    | 'least_walking'
   can_drive?: boolean | null
   max_walking_distance_m?: number | null
   max_transfer_count?: number | null
@@ -122,6 +128,28 @@ export type PlanningVariant = {
   ranked_options: PlanningOption[]
 }
 
+export type PlanningTransitCandidate = {
+  candidate_index: number
+  selected: boolean
+  duration_s: number
+  cost_yuan?: number | null
+  walking_distance_m: number
+  transfer_count: number
+  line_names: string[]
+  legs?: PlanningTransitLeg[]
+}
+
+export type PlanningTransitLeg = {
+  mode: 'walking' | 'bus' | 'subway' | 'railway' | 'taxi'
+  distance_m: number
+  duration_s?: number | null
+  instruction?: string | null
+  line_name?: string | null
+  departure_stop?: string | null
+  arrival_stop?: string | null
+  via_stop_count?: number | null
+}
+
 export type PlanningResultCard = {
   type: 'planning'
   origin_name: string
@@ -129,12 +157,18 @@ export type PlanningResultCard = {
   recommended_mode: 'driving' | 'walking' | 'transit'
   previous_recommended_mode?: 'driving' | 'walking' | 'transit' | null
   reused_previous_data: boolean
+  route_refreshed: boolean
+  used_stale_snapshot: boolean
+  refresh_failed: boolean
+  route_snapshot_at?: string | null
   arrival_by?: string | null
   arrival_buffer_minutes?: number | null
   preferences: PlanningPreferences
   ranked_options: PlanningOption[]
   recommendation_variants?: PlanningVariant[]
   unavailable_options: PlanningExcludedOption[]
+  transit_candidates?: PlanningTransitCandidate[]
+  selected_transit_candidate_index?: number | null
 }
 
 export type ResultCard =
