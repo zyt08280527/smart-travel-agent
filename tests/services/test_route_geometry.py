@@ -16,6 +16,19 @@ def test_parse_amap_polyline_converts_gcj02_and_skips_invalid_pairs() -> None:
     assert points[0].latitude != 22.533180
 
 
+def test_parse_amap_polyline_accepts_v5_nested_polyline_object() -> None:
+    points = parse_amap_polyline(
+        {
+            "polyline": (
+                "113.936580,22.533180;113.940000,22.540000"
+            )
+        }
+    )
+
+    assert len(points) == 2
+    assert points[0].longitude < 113.936580
+
+
 def test_merge_geometry_deduplicates_fragment_boundaries() -> None:
     first = GeoPoint(latitude=22.5, longitude=113.9)
     second = GeoPoint(latitude=22.6, longitude=114.0)

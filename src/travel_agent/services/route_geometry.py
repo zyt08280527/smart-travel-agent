@@ -1,6 +1,6 @@
 """Normalize provider route polylines for API cards and map rendering."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from travel_agent.domain.route import GeoPoint
 from travel_agent.services.coordinate_system import gcj02_to_wgs84
@@ -10,6 +10,8 @@ MAX_ROUTE_GEOMETRY_POINTS = 80
 
 def parse_amap_polyline(value: object) -> list[GeoPoint]:
     """Parse one AMap GCJ-02 ``lon,lat;...`` polyline into WGS84 points."""
+    if isinstance(value, Mapping):
+        value = value.get("polyline")
     if not isinstance(value, str) or not value.strip():
         return []
 
