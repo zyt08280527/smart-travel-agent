@@ -92,6 +92,14 @@ describe('App streaming chat', () => {
     render(<App />)
 
     await screen.findByText('后端已连接，当前加载 1 个 Agent 工具。')
+    const composer = screen.getByLabelText('输入你的出行问题').closest('form')
+    const messageList = document.querySelector('.message-list')
+    expect(messageList).not.toBeNull()
+    expect(composer).not.toBeNull()
+    expect(
+      messageList!.compareDocumentPosition(composer!)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
     await user.type(
       screen.getByLabelText('输入你的出行问题'),
       '深圳现在天气怎么样？',
@@ -125,8 +133,14 @@ describe('App streaming chat', () => {
       },
     ])
 
+    const user = userEvent.setup()
     render(<App />)
 
+    const itineraryToggle = await screen.findByRole('button', {
+      name: /已保存行程.*展开/,
+    })
+    expect(screen.queryByText('深圳通勤')).not.toBeInTheDocument()
+    await user.click(itineraryToggle)
     expect(await screen.findByText('深圳通勤')).toBeInTheDocument()
     expect(screen.getByText('深圳大学粤海校区 → 深圳大学丽湖校区'))
       .toBeInTheDocument()
@@ -155,6 +169,9 @@ describe('App streaming chat', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await user.click(
+      await screen.findByRole('button', { name: /已保存行程.*展开/ }),
+    )
     await user.click(await screen.findByRole('button', { name: /待删除通勤/ }))
     expect(screen.getByText('备注：地铁优先')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '删除行程' }))
@@ -193,6 +210,7 @@ describe('App streaming chat', () => {
             origin_name: '粤海校区',
             destination_name: '丽湖校区',
             recommended_mode: 'transit',
+            selected_mode: 'transit',
             reused_previous_data: false,
             route_refreshed: false,
             used_stale_snapshot: false,
@@ -213,7 +231,6 @@ describe('App streaming chat', () => {
                 duration_s: 4200,
               },
             ],
-            unavailable_options: [],
           },
         },
         {
@@ -231,6 +248,9 @@ describe('App streaming chat', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await user.click(
+      await screen.findByRole('button', { name: /已保存行程.*展开/ }),
+    )
     await user.click(await screen.findByRole('button', { name: /日常通勤/ }))
     await user.click(
       screen.getByRole('button', { name: '按当前情况重新规划' }),
@@ -398,6 +418,7 @@ describe('App streaming chat', () => {
             destination_name: '丽湖校区',
             recommended_mode: 'transit',
             previous_recommended_mode: 'driving',
+            selected_mode: 'transit',
             reused_previous_data: true,
             route_refreshed: false,
             used_stale_snapshot: false,
@@ -416,6 +437,7 @@ describe('App streaming chat', () => {
                 mode: 'transit',
                 total_score: 84,
                 duration_s: 2700,
+                latest_departure_at: '2026-09-14T08:00:00+08:00',
                 walking_distance_m: 800,
                 transfer_count: 1,
               },
@@ -506,6 +528,10 @@ describe('App streaming chat', () => {
                 walking_distance_m: 300,
                 transfer_count: 0,
                 line_names: ['地铁5号线'],
+                geometry: [
+                  { latitude: 22.58, longitude: 113.97 },
+                  { latitude: 22.60, longitude: 113.99 },
+                ],
                 legs: [
                   {
                     mode: 'walking',
@@ -532,6 +558,10 @@ describe('App streaming chat', () => {
                 walking_distance_m: 900,
                 transfer_count: 1,
                 line_names: ['M176路', '地铁1号线'],
+                geometry: [
+                  { latitude: 22.58, longitude: 113.97 },
+                  { latitude: 22.61, longitude: 114.01 },
+                ],
               },
             ],
             selected_transit_candidate_index: 1,
@@ -563,49 +593,76 @@ describe('App streaming chat', () => {
 
     expect(await screen.findByText('本地重新评分')).toBeInTheDocument()
     expect(screen.getByText('驾车 → 公共交通')).toBeInTheDocument()
-    expect(screen.getAllByText('优先省钱')).toHaveLength(2)
+    expect(screen.getByText('本次出行偏好')).toBeInTheDocument()
+    expect(screen.getByText('同时影响出行方式推荐与具体路线排序'))
+      .toBeInTheDocument()
+    expect(screen.getByText('当前：优先省钱')).toBeInTheDocument()
+    expect(screen.queryByText('通用偏好')).not.toBeInTheDocument()
+    expect(screen.queryByText('公共交通偏好')).not.toBeInTheDocument()
     expect(screen.getByText('不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/目标到达.*9\/14.*09:00/)).toBeInTheDocument()
     expect(screen.getByText('已预留 15 分钟缓冲')).toBeInTheDocument()
     expect(screen.getByText(/最晚.*9\/14.*08:00.*出发/)).toBeInTheDocument()
     expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
     expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
-    expect(screen.getByText('公共交通候选')).toBeInTheDocument()
+    expect(screen.getByText('2. 选择具体公共交通路线')).toBeInTheDocument()
+    expect(screen.getByText('点击候选即可切换首选路线，地图会同步更新'))
+      .toBeInTheDocument()
     expect(screen.getByRole('button', { name: '地铁优先' }))
       .toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('已比较 2 条具体路线')).toBeInTheDocument()
+    expect(screen.getByText('当前首选：候选 2')).toBeInTheDocument()
+    expect(screen.getByLabelText('公共交通候选 2地图')).toBeInTheDocument()
     await user.click(screen.getAllByText('查看完整路线').at(-2)!)
     expect(screen.getByText('步行至大学城站')).toBeInTheDocument()
     expect(screen.getByText('大学城站 → 西丽站 · 途经 2 站'))
       .toBeInTheDocument()
     expect(screen.getByText('7.7 公里 · 25 分钟')).toBeInTheDocument()
     expect(screen.getByText('候选 2')).toBeInTheDocument()
-    expect(screen.getByText('M176路 → 地铁1号线')).toBeInTheDocument()
-    expect(screen.getByText('当前路线')).toBeInTheDocument()
-    expect(screen.getByText('30 分钟 · 费用 7 元 · 步行 900 米 · 换乘 1 次'))
+    expect(screen.getAllByText('M176路 → 地铁1号线')).toHaveLength(2)
+    expect(screen.getByText('当前首选')).toBeInTheDocument()
+    expect(
+      screen.getAllByText('30 分钟 · 费用 7 元 · 步行 900 米 · 换乘 1 次'),
+    ).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: '公共交通' }))
+      .toBeInTheDocument()
+    expect(screen.getByText('候选 2 · M176路 → 地铁1号线'))
       .toBeInTheDocument()
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '优先少换乘' }))
-    expect(screen.getByText('该偏好推荐')).toBeInTheDocument()
-    expect(screen.getAllByText('步行').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('1. 步行')).toBeInTheDocument()
-    expect(screen.getByText('费用 0 元 · 步行 12.5 公里 · 换乘 0 次'))
-      .toBeInTheDocument()
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('调整为优先少换乘')
 
-    await user.click(screen.getByRole('button', { name: '少步行' }))
+    const leastWalkingButtons = screen.getAllByRole('button', { name: '少步行' })
+    await user.click(
+      leastWalkingButtons.find((button) => !button.hasAttribute('disabled'))!,
+    )
     expect(streamChatMock.mock.calls.at(-1)?.[0])
       .toBe('公共交通改为少步行')
 
     const candidateButtons = screen.getAllByRole('button', {
       name: '选择公共交通候选 1',
     })
-    expect(candidateButtons[0]).toBeDisabled()
-    expect(candidateButtons.at(-1)).not.toBeDisabled()
-    await user.click(candidateButtons.at(-1)!)
+    const selectableCandidate = candidateButtons.find(
+      (button) => !button.hasAttribute('disabled'),
+    )
+    expect(selectableCandidate).toBeDefined()
+    await user.click(selectableCandidate!)
     expect(streamChatMock.mock.calls.at(-1)?.[0])
       .toBe('选择公共交通候选1')
+
+    const saveButtons = screen.getAllByRole('button', {
+      name: '保存以上行程',
+    })
+    const enabledSaveButton = saveButtons.find(
+      (button) => !button.hasAttribute('disabled'),
+    )
+    expect(enabledSaveButton).toBeDefined()
+    await user.click(enabledSaveButton!)
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('保存当前选择的行程')
+    expect(streamChatMock.mock.calls.at(-1)?.[1]).toBe('thread-replan')
   })
 
   test('renders an explicit warning for a stale route fallback', async () => {
@@ -660,6 +717,13 @@ describe('App streaming chat', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       /路线刷新失败.*9\/14.*10:00.*过期快照.*仅供临时参考/,
     )
+    expect(screen.queryByRole('button', { name: '保存以上行程' }))
+      .not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', {
+      name: '选择公共交通方案',
+    }))
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('选择公共交通方案')
   })
 
   test.each([
@@ -668,16 +732,18 @@ describe('App streaming chat', () => {
       buttonName: '批准执行',
       userText: '已批准该操作。',
       decisionMessage: undefined,
+      answer: '行程已保存成功，可在左侧“已保存行程”中查看。',
     },
     {
       decision: 'reject' as const,
       buttonName: '拒绝执行',
       userText: '已拒绝该操作。',
       decisionMessage: '用户在 Web 页面拒绝了该操作。',
+      answer: '审批完成：reject',
     },
   ])(
     'resumes an approval-required stream with $decision',
-    async ({ decision, buttonName, userText, decisionMessage }) => {
+    async ({ decision, buttonName, userText, decisionMessage, answer }) => {
       streamChatMock.mockImplementation(
         async (_message, _threadId, onEvent) => {
           const events: AgentStreamEvent[] = [
@@ -711,7 +777,7 @@ describe('App streaming chat', () => {
       decideApprovalMock.mockResolvedValue({
         status: 'completed',
         thread_id: 'thread-approval',
-        answer: `审批完成：${decision}`,
+        answer,
         pending_actions: [],
       })
 
@@ -728,13 +794,18 @@ describe('App streaming chat', () => {
 
       await user.click(screen.getByRole('button', { name: buttonName }))
 
-      await screen.findByText(`审批完成：${decision}`)
+      await screen.findByText(answer)
       expect(decideApprovalMock).toHaveBeenCalledWith(
         'thread-approval',
         decision,
         decisionMessage,
       )
       expect(screen.getByText(userText)).toBeInTheDocument()
+      if (decision === 'approve') {
+        expect(screen.getByRole('button', {
+          name: /已保存行程.*收起/,
+        })).toBeInTheDocument()
+      }
       expect(
         screen.queryByRole('heading', { name: '操作等待审批' }),
       ).not.toBeInTheDocument()
@@ -813,6 +884,9 @@ describe('App streaming chat', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await user.click(
+      await screen.findByRole('button', { name: /历史会话.*展开/ }),
+    )
     const historyTitle = await screen.findByText('深圳现在天气怎么样？')
     const historyButton = historyTitle.closest('button')
     expect(historyButton).not.toBeNull()
@@ -847,6 +921,9 @@ describe('App streaming chat', () => {
 
     const user = userEvent.setup()
     render(<App />)
+    await user.click(
+      await screen.findByRole('button', { name: /历史会话.*展开/ }),
+    )
     const deleteButton = await screen.findByRole('button', {
       name: '删除会话：准备删除的会话',
     })

@@ -96,7 +96,13 @@ def _ground_from_planning(
     grounded["origin"] = result.context.origin_name
     grounded["destination"] = result.context.destination_name
 
-    if manual_transit_selection and result.selected_transit_candidate_index is not None:
+    selected_mode = result.selected_mode
+    if selected_mode is None and not manual_transit_selection:
+        raise ValueError("保存前必须先明确选择出行方式")
+    if (
+        (selected_mode == "transit" or manual_transit_selection)
+        and result.selected_transit_candidate_index is not None
+    ):
         option = result.transit_candidates[result.selected_transit_candidate_index]
         grounded.update(
             {
@@ -109,7 +115,14 @@ def _ground_from_planning(
         )
         return grounded
 
-    option = result.recommendation.ranked_options[0].option
+    option = next(
+        (
+            scored.option
+            for scored in result.recommendation.ranked_options
+            if scored.option.mode == selected_mode
+        ),
+        result.recommendation.ranked_options[0].option,
+    )
     grounded.update(
         {
             "travel_mode": option.mode,
@@ -151,6 +164,7 @@ class ItinerarySaveGroundingMiddleware(AgentMiddleware):
 
         revised_calls = []
         changed = False
+        selection_required = False
         for call in last_ai.tool_calls:
             if call.get("name") != "save_itinerary":
                 revised_calls.append(call)
@@ -170,11 +184,22 @@ class ItinerarySaveGroundingMiddleware(AgentMiddleware):
                     )
                 )
             except ValueError:
-                revised_calls.append(call)
+                selection_required = True
                 continue
             revised_calls.append({**call, "args": grounded_args})
             changed = changed or grounded_args != args
 
+        if selection_required:
+            return {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "保存前请先在规划卡片中选择最终出行方式"
+                            "（驾车、公共交通或步行）。"
+                        )
+                    )
+                ]
+            }
         if not changed:
             return None
         return {"messages": [last_ai.model_copy(update={"tool_calls": revised_calls})]}

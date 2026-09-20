@@ -76,7 +76,7 @@ export type TransitResultCard = {
   walking_distance_m: number
   cost_yuan?: number | null
   transfer_count: number
-  line_names: string[]
+  line_names?: string[]
   options?: PlanningTransitCandidate[]
   attribution: string
 }
@@ -142,7 +142,7 @@ export type PlanningTransitCandidate = {
   cost_yuan?: number | null
   walking_distance_m: number
   transfer_count: number
-  line_names: string[]
+  line_names?: string[]
   legs?: PlanningTransitLeg[]
   geometry?: MapPoint[]
 }
@@ -164,6 +164,7 @@ export type PlanningResultCard = {
   origin_name: string
   destination_name: string
   recommended_mode: 'driving' | 'walking' | 'transit'
+  selected_mode?: 'driving' | 'walking' | 'transit' | null
   previous_recommended_mode?: 'driving' | 'walking' | 'transit' | null
   reused_previous_data: boolean
   route_refreshed: boolean
@@ -175,7 +176,7 @@ export type PlanningResultCard = {
   preferences: PlanningPreferences
   ranked_options: PlanningOption[]
   recommendation_variants?: PlanningVariant[]
-  unavailable_options: PlanningExcludedOption[]
+  unavailable_options?: PlanningExcludedOption[]
   transit_candidates?: PlanningTransitCandidate[]
   selected_transit_candidate_index?: number | null
 }

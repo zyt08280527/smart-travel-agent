@@ -215,6 +215,27 @@ def test_replan_excludes_driving_and_reuses_existing_facts() -> None:
     )
 
 
+def test_replan_preserves_explicit_mode_selection_across_priority_changes() -> None:
+    payload = build_payload()
+    payload["selected_mode"] = "transit"
+
+    result = replan_from_payload(
+        payload,
+        preference_updates={"priority": "fastest"},
+    )
+
+    assert result["selected_mode"] == "transit"
+
+
+def test_replan_rejects_explicitly_selected_unavailable_mode() -> None:
+    with pytest.raises(ValueError, match="所选交通方式当前不可用"):
+        replan_from_payload(
+            build_payload(),
+            preference_updates={"can_drive": False},
+            selected_mode="driving",
+        )
+
+
 def test_replan_reselects_concrete_transit_candidate_for_new_priority() -> None:
     payload = build_payload()
     payload["transit_candidates"] = [

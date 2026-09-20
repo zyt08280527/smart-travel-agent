@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any
@@ -214,6 +215,18 @@ class AgentRuntime:
             await self._conversation_repository.set_status(thread_id, "error")
             raise
         response = self._build_response(thread_id, result)
+        if (
+            request.decision == "approve"
+            and response.status == "completed"
+            and self._save_itinerary_succeeded(result.get("messages", []))
+        ):
+            response = response.model_copy(
+                update={
+                    "answer": (
+                        "行程已保存成功，可在左侧“已保存行程”中查看。"
+                    )
+                }
+            )
         await self._store_response(response, result.get("messages", []))
         return response
 
@@ -388,6 +401,28 @@ class AgentRuntime:
             if card is not None:
                 cards.append(card.model_dump(mode="json"))
         return cards
+
+    @staticmethod
+    def _save_itinerary_succeeded(messages: object) -> bool:
+        """Return true only when the save tool confirms a persisted record."""
+        if not isinstance(messages, list):
+            return False
+        for message in reversed(messages):
+            if not isinstance(message, ToolMessage):
+                continue
+            if getattr(message, "name", None) != "save_itinerary":
+                continue
+            try:
+                payload = json.loads(str(message.content))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return False
+            return bool(
+                isinstance(payload, dict)
+                and payload.get("ok") is True
+                and isinstance(payload.get("itinerary"), dict)
+                and payload["itinerary"].get("itinerary_id")
+            )
+        return False
 
     async def _recover_pending_action_count(
         self,

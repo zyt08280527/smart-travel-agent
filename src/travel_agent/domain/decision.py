@@ -180,6 +180,7 @@ class TravelComparisonResult(BaseModel):
     )
     transit_candidates: list[TransitRouteOption] = Field(default_factory=list)
     selected_transit_candidate_index: int | None = Field(default=None, ge=0)
+    selected_mode: TravelMode | None = None
 
     @model_validator(mode="after")
     def selected_transit_candidate_must_exist(self) -> "TravelComparisonResult":

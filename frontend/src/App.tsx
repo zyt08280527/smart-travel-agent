@@ -392,9 +392,10 @@ function TransitCard({
 }) {
   const costText =
     card.cost_yuan == null ? '未提供' : `¥${card.cost_yuan.toFixed(2)}`
+  const lineNames = card.line_names ?? []
   const lineText =
-    card.line_names.length > 0
-      ? card.line_names.join(' → ')
+    lineNames.length > 0
+      ? lineNames.join(' → ')
       : '线路名称未提供'
   const selectedCandidate = card.options?.find((candidate) => candidate.selected)
     ?? card.options?.[0]
@@ -540,22 +541,28 @@ const TRANSIT_LEG_LABELS = {
 
 function TransitCandidateView({
   candidate,
+  badges = [],
   disabled = false,
   onSelect,
 }: {
   candidate: PlanningTransitCandidate
+  badges?: string[]
   disabled?: boolean
   onSelect?: (candidateIndex: number) => void
 }) {
+  const lineNames = candidate.line_names ?? []
   const summary = (
     <>
       <span className="planning-transit-title">
         <strong>候选 {candidate.candidate_index + 1}</strong>
-        {candidate.selected && <em>当前路线</em>}
+        <span className="planning-transit-badges">
+          {badges.map((badge) => <em key={badge}>{badge}</em>)}
+          {candidate.selected && <em>当前首选</em>}
+        </span>
       </span>
       <span className="planning-transit-lines">
-        {candidate.line_names.length > 0
-          ? candidate.line_names.join(' → ')
+        {lineNames.length > 0
+          ? lineNames.join(' → ')
           : '线路信息未提供'}
       </span>
       <small>
@@ -627,6 +634,12 @@ function TransitCandidateView({
   )
 }
 
+const MODE_SELECTION_MESSAGES = {
+  driving: '选择驾车方案',
+  transit: '选择公共交通方案',
+  walking: '选择步行方案',
+}
+
 const TRANSIT_STRATEGY_MESSAGES = {
   recommended: '公共交通综合推荐',
   subway_first: '公共交通改为地铁优先',
@@ -634,6 +647,16 @@ const TRANSIT_STRATEGY_MESSAGES = {
   least_walking: '公共交通改为少步行',
 }
 
+const PRIORITY_MESSAGES = {
+  balanced: '调整为均衡考虑',
+  fastest: '调整为优先速度',
+  cheapest: '调整为优先省钱',
+  least_walking: '调整为优先少步行',
+  fewest_transfers: '调整为优先少换乘',
+}
+
+type PlanningMode = keyof typeof MODE_LABELS
+type PlanningPriority = keyof typeof PRIORITY_LABELS
 type TransitStrategy = keyof typeof TRANSIT_STRATEGY_LABELS
 
 function formatPlanningDateTime(value: string): string {
@@ -653,53 +676,113 @@ function formatPlanningDateTime(value: string): string {
 
 function PlanningCard({
   card,
+  onSelectMode,
+  onSelectPriority,
   onSelectTransitStrategy,
   onSelectTransitCandidate,
+  onSaveItinerary,
   strategyChangeDisabled,
+  saveDisabled,
 }: {
   card: PlanningResultCard
+  onSelectMode?: (mode: PlanningMode) => void
+  onSelectPriority?: (priority: PlanningPriority) => void
   onSelectTransitStrategy?: (strategy: TransitStrategy) => void
   onSelectTransitCandidate?: (candidateIndex: number) => void
+  onSaveItinerary?: () => void
   strategyChangeDisabled?: boolean
+  saveDisabled?: boolean
 }) {
-  const availableVariants = card.recommendation_variants?.length
-    ? card.recommendation_variants
-    : [{
-        priority: card.preferences.priority,
-        recommended_mode: card.recommended_mode,
-        ranked_options: card.ranked_options,
-      }]
-  const [selectedPriority, setSelectedPriority] = useState(
-    card.preferences.priority,
+  const unavailableOptions = card.unavailable_options ?? []
+  const selectedMode = card.selected_mode ?? null
+  const selectedRoute = card.ranked_options.find(
+    (option) => option.mode === selectedMode,
   )
-  const selectedVariant = availableVariants.find(
-    (variant) => variant.priority === selectedPriority,
-  ) ?? availableVariants[0]
-  const selectedRoute = selectedVariant.ranked_options.find(
-    (option) => option.mode === selectedVariant.recommended_mode,
+  const serverSelectedTransitCandidateIndex =
+    card.selected_transit_candidate_index
+    ?? card.transit_candidates?.find((candidate) => candidate.selected)
+      ?.candidate_index
+    ?? null
+  const [selectedTransitCandidateIndex, setSelectedTransitCandidateIndex] =
+    useState<number | null>(serverSelectedTransitCandidateIndex)
+
+  useEffect(() => {
+    setSelectedTransitCandidateIndex(serverSelectedTransitCandidateIndex)
+  }, [serverSelectedTransitCandidateIndex])
+
+  const selectedTransitCandidate = card.transit_candidates?.find(
+    (candidate) => candidate.candidate_index === selectedTransitCandidateIndex,
   )
-  const preferenceLabels = [PRIORITY_LABELS[card.preferences.priority]]
+  const selectedDuration = selectedMode === 'transit'
+    ? selectedTransitCandidate?.duration_s ?? selectedRoute?.duration_s
+    : selectedRoute?.duration_s
+  const selectedCost = selectedMode === 'transit'
+    ? selectedTransitCandidate?.cost_yuan ?? selectedRoute?.cost_yuan
+    : selectedRoute?.cost_yuan
+  const selectedWalkingDistance = selectedMode === 'transit'
+    ? selectedTransitCandidate?.walking_distance_m
+      ?? selectedRoute?.walking_distance_m
+    : selectedRoute?.walking_distance_m
+  const selectedTransferCount = selectedMode === 'transit'
+    ? selectedTransitCandidate?.transfer_count ?? selectedRoute?.transfer_count
+    : selectedRoute?.transfer_count
+  const constraintLabels: string[] = []
   if (card.preferences.can_drive === false) {
-    preferenceLabels.push('不能驾车')
+    constraintLabels.push('不能驾车')
   } else if (card.preferences.can_drive === true) {
-    preferenceLabels.push('可以驾车')
+    constraintLabels.push('可以驾车')
   }
   if (card.preferences.max_walking_distance_m != null) {
-    preferenceLabels.push(
+    constraintLabels.push(
       `最多步行 ${formatDistance(card.preferences.max_walking_distance_m)}`,
     )
   }
   if (card.preferences.max_transfer_count != null) {
-    preferenceLabels.push(`最多换乘 ${card.preferences.max_transfer_count} 次`)
+    constraintLabels.push(`最多换乘 ${card.preferences.max_transfer_count} 次`)
+  }
+
+  const transitCandidates = card.transit_candidates ?? []
+  const minimumTransitDuration = transitCandidates.length > 0
+    ? Math.min(...transitCandidates.map((candidate) => candidate.duration_s))
+    : null
+  const pricedTransitCandidates = transitCandidates.filter(
+    (candidate) => candidate.cost_yuan != null,
+  )
+  const minimumTransitCost = pricedTransitCandidates.length > 0
+    ? Math.min(...pricedTransitCandidates.map((candidate) => candidate.cost_yuan!))
+    : null
+  const minimumTransitWalking = transitCandidates.length > 0
+    ? Math.min(...transitCandidates.map((candidate) => candidate.walking_distance_m))
+    : null
+  const minimumTransitTransfers = transitCandidates.length > 0
+    ? Math.min(...transitCandidates.map((candidate) => candidate.transfer_count))
+    : null
+  const selectedTransitGeometry =
+    (selectedTransitCandidate?.geometry?.length ?? 0) >= 2
+      ? selectedTransitCandidate?.geometry ?? []
+      : selectedRoute?.geometry ?? []
+
+  function transitCandidateBadges(candidate: PlanningTransitCandidate): string[] {
+    const badges: string[] = []
+    if (candidate.duration_s === minimumTransitDuration) {
+      badges.push('最快')
+    }
+    if (candidate.cost_yuan != null && candidate.cost_yuan === minimumTransitCost) {
+      badges.push('最省钱')
+    }
+    if (candidate.walking_distance_m === minimumTransitWalking) {
+      badges.push('步行最少')
+    }
+    if (candidate.transfer_count === minimumTransitTransfers) {
+      badges.push('换乘最少')
+    }
+    return badges
   }
 
   const previousModeLabel = card.previous_recommended_mode == null
     ? null
     : MODE_LABELS[card.previous_recommended_mode]
-  const recommendationChanged =
-    selectedPriority === card.preferences.priority
-    &&
-    previousModeLabel != null
+  const recommendationChanged = previousModeLabel != null
     && card.previous_recommended_mode !== card.recommended_mode
 
   return (
@@ -729,21 +812,11 @@ function PlanningCard({
           </>
         ) : (
           <>
-            <span>
-              {selectedPriority === card.preferences.priority
-                ? '当前推荐'
-                : '该偏好推荐'}
-            </span>
-            <strong>{MODE_LABELS[selectedVariant.recommended_mode]}</strong>
+            <span>系统推荐</span>
+            <strong>{MODE_LABELS[card.recommended_mode]}</strong>
           </>
         )}
       </div>
-
-      <RouteMap
-        geometry={selectedRoute?.geometry ?? []}
-        mode={selectedVariant.recommended_mode}
-        label={`${MODE_LABELS[selectedVariant.recommended_mode]}推荐路线`}
-      />
 
       {card.arrival_by != null && (
         <div className="planning-arrival" aria-label="到达时间安排">
@@ -754,30 +827,86 @@ function PlanningCard({
         </div>
       )}
 
-      <div className="planning-variant-tabs" aria-label="切换推荐偏好">
-        {availableVariants.map((variant) => (
-          <button
-            type="button"
-            key={variant.priority}
-            className={variant.priority === selectedPriority ? 'active' : ''}
-            aria-pressed={variant.priority === selectedPriority}
-            onClick={() => setSelectedPriority(variant.priority)}
+      <section className="planning-trip-preferences" aria-label="本次出行偏好">
+        <div className="planning-preference-group-heading">
+          <div>
+            <strong>本次出行偏好</strong>
+            <small>同时影响出行方式推荐与具体路线排序</small>
+          </div>
+          <span>当前：{PRIORITY_LABELS[card.preferences.priority]}</span>
+        </div>
+        <div className="planning-variant-tabs" aria-label="设置本次出行偏好">
+          {(Object.entries(PRIORITY_LABELS) as Array<
+            [PlanningPriority, string]
+          >).map(([priority, label]) => (
+            <button
+              type="button"
+              key={priority}
+              className={priority === card.preferences.priority ? 'active' : ''}
+              aria-pressed={priority === card.preferences.priority}
+              disabled={
+                strategyChangeDisabled
+                || priority === card.preferences.priority
+              }
+              onClick={() => onSelectPriority?.(priority)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {constraintLabels.length > 0 && (
+          <div className="planning-preferences" aria-label="本次出行限制">
+            {constraintLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+        )}
+        <details className="planning-advanced-preferences">
+          <summary>高级设置</summary>
+          <div>
+            <span>公共交通倾向</span>
+            <div
+              className="planning-transit-strategies"
+              aria-label="设置公共交通倾向"
+            >
+              {(Object.entries(TRANSIT_STRATEGY_LABELS) as Array<
+                [TransitStrategy, string]
+              >).map(([strategy, label]) => {
+                const activeStrategy = card.preferences.transit_strategy
+                  ?? 'recommended'
+                return (
+                  <button
+                    type="button"
+                    key={strategy}
+                    className={strategy === activeStrategy ? 'active' : ''}
+                    aria-pressed={strategy === activeStrategy}
+                    disabled={strategyChangeDisabled || strategy === activeStrategy}
+                    onClick={() => onSelectTransitStrategy?.(strategy)}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <div className="planning-step-heading">
+        <strong>1. 选择出行方式</strong>
+        <small>推荐仅供参考，请确认最终采用的方式</small>
+      </div>
+      <ol className="planning-ranking planning-mode-selection">
+        {card.ranked_options.map((option, index) => (
+          <li
+            key={option.mode}
+            className={selectedMode === option.mode ? 'selected' : ''}
           >
-            {PRIORITY_LABELS[variant.priority]}
-          </button>
-        ))}
-      </div>
-
-      <div className="planning-preferences" aria-label="当前偏好">
-        {preferenceLabels.map((label) => (
-          <span key={label}>{label}</span>
-        ))}
-      </div>
-
-      <ol className="planning-ranking">
-        {selectedVariant.ranked_options.map((option, index) => (
-          <li key={option.mode}>
-            <strong>{index + 1}. {MODE_LABELS[option.mode]}</strong>
+            <strong>
+              {index + 1}. {MODE_LABELS[option.mode]}
+              {option.mode === card.recommended_mode && <em>系统推荐</em>}
+              {option.mode === selectedMode && <em>已选择</em>}
+            </strong>
             <span>
               {option.total_score.toFixed(1)} 分 · {formatDuration(option.duration_s)}
             </span>
@@ -806,57 +935,132 @@ function PlanningCard({
                   : ''}
               </small>
             )}
+            <button
+              type="button"
+              aria-label={`选择${MODE_LABELS[option.mode]}方案`}
+              disabled={strategyChangeDisabled || selectedMode === option.mode}
+              onClick={() => onSelectMode?.(option.mode)}
+            >
+              {selectedMode === option.mode ? '已选择' : '选择此方式'}
+            </button>
           </li>
         ))}
       </ol>
 
-      {(card.transit_candidates?.length ?? 0) > 0 && (
+      {selectedMode == null && (
+        <p className="planning-selection-hint">
+          请先选择一种出行方式，再细化方案并保存。
+        </p>
+      )}
+
+      {selectedMode === 'transit'
+        && (card.transit_candidates?.length ?? 0) > 0 && (
         <div className="planning-transit-candidates">
           <div className="planning-transit-heading">
-            <strong>公共交通候选</strong>
-            <small>已比较 {card.transit_candidates?.length} 条具体路线</small>
+            <strong>2. 选择具体公共交通路线</strong>
+            <small>点击候选即可切换首选路线，地图会同步更新</small>
           </div>
-          <div
-            className="planning-transit-strategies"
-            aria-label="选择公共交通策略"
-          >
-            {(Object.entries(TRANSIT_STRATEGY_LABELS) as Array<
-              [TransitStrategy, string]
-            >).map(([strategy, label]) => {
-              const activeStrategy = card.preferences.transit_strategy
-                ?? 'recommended'
+          {selectedTransitCandidate && (
+            <div className="planning-selected-route-map">
+              <div className="planning-selected-route-label">
+                <strong>
+                  当前首选：候选 {selectedTransitCandidate.candidate_index + 1}
+                </strong>
+                <span>
+                  {(selectedTransitCandidate.line_names?.length ?? 0) > 0
+                    ? selectedTransitCandidate.line_names?.join(' → ')
+                    : '公共交通路线'}
+                </span>
+              </div>
+              <RouteMap
+                geometry={selectedTransitGeometry}
+                mode="transit"
+                label={`公共交通候选 ${selectedTransitCandidate.candidate_index + 1}`}
+              />
+            </div>
+          )}
+          <ol>
+            {card.transit_candidates?.map((candidate) => {
+              const displayedCandidate = {
+                ...candidate,
+                selected:
+                  candidate.candidate_index === selectedTransitCandidateIndex,
+              }
               return (
-                <button
-                  type="button"
-                  key={strategy}
-                  className={strategy === activeStrategy ? 'active' : ''}
-                  aria-pressed={strategy === activeStrategy}
+                <TransitCandidateView
+                  key={candidate.candidate_index}
+                  candidate={displayedCandidate}
+                  badges={transitCandidateBadges(candidate)}
                   disabled={strategyChangeDisabled}
-                  onClick={() => onSelectTransitStrategy?.(strategy)}
-                >
-                  {label}
-                </button>
+                  onSelect={(candidateIndex) => {
+                    setSelectedTransitCandidateIndex(candidateIndex)
+                    onSelectTransitCandidate?.(candidateIndex)
+                  }}
+                />
               )
             })}
-          </div>
-          <ol>
-            {card.transit_candidates?.map((candidate) => (
-              <TransitCandidateView
-                key={candidate.candidate_index}
-                candidate={candidate}
-                disabled={strategyChangeDisabled}
-                onSelect={onSelectTransitCandidate}
-              />
-            ))}
           </ol>
         </div>
       )}
 
-      {card.unavailable_options.length > 0 && (
+      {selectedMode != null && selectedMode !== 'transit' && (
+        <RouteMap
+          geometry={selectedRoute?.geometry ?? []}
+          mode={selectedMode}
+          label={`${MODE_LABELS[selectedMode]}已选路线`}
+        />
+      )}
+
+      {selectedMode != null
+        && onSaveItinerary
+        && selectedRoute
+        && selectedDuration != null && (
+        <div className="planning-save-summary" aria-label="待保存方案">
+          <div className="planning-step-heading">
+            <strong>
+              {selectedMode === 'transit' ? '3' : '2'}. 待保存方案
+            </strong>
+            <small>审批时会再次展示同一方案</small>
+          </div>
+          <h5>{MODE_LABELS[selectedMode]}</h5>
+          {selectedMode === 'transit' && selectedTransitCandidate && (
+            <p>
+              候选 {selectedTransitCandidate.candidate_index + 1}
+              {(selectedTransitCandidate.line_names?.length ?? 0) > 0
+                ? ` · ${selectedTransitCandidate.line_names?.join(' → ')}`
+                : ''}
+            </p>
+          )}
+          <p>
+            {formatDuration(selectedDuration)}
+            {selectedCost != null
+              ? ` · 费用 ${selectedCost.toFixed(0)} 元`
+              : ''}
+            {selectedWalkingDistance != null
+              ? ` · 步行 ${formatDistance(selectedWalkingDistance)}`
+              : ''}
+            {selectedTransferCount != null
+              ? ` · 换乘 ${selectedTransferCount} 次`
+              : ''}
+          </p>
+          <div className="planning-save-actions">
+            <button
+              type="button"
+              onClick={onSaveItinerary}
+              disabled={saveDisabled}
+            >
+              保存以上行程
+            </button>
+            <small>保存前需要你批准执行。</small>
+          </div>
+        </div>
+      )}
+
+      {unavailableOptions.length > 0 && (
         <div className="planning-exclusions">
           <strong>未参与推荐</strong>
           <ul>
-            {card.unavailable_options.map((option) => (
+            {unavailableOptions.map((option) => (
               <li key={`${option.mode}-${option.reason}`}>
                 {MODE_LABELS[option.mode]}：{option.reason}
               </li>
@@ -908,14 +1112,22 @@ function PlanningCard({
 
 function ResultCardView({
   card,
+  onSelectMode,
+  onSelectPriority,
   onSelectTransitStrategy,
   onSelectTransitCandidate,
+  onSaveItinerary,
   strategyChangeDisabled,
+  saveDisabled,
 }: {
   card: ResultCard
+  onSelectMode?: (mode: PlanningMode) => void
+  onSelectPriority?: (priority: PlanningPriority) => void
   onSelectTransitStrategy?: (strategy: TransitStrategy) => void
   onSelectTransitCandidate?: (candidateIndex: number) => void
+  onSaveItinerary?: () => void
   strategyChangeDisabled?: boolean
+  saveDisabled?: boolean
 }) {
   if (card.type === 'weather') {
     return <WeatherCard card={card} />
@@ -939,9 +1151,13 @@ function ResultCardView({
     return (
       <PlanningCard
         card={card}
+        onSelectMode={onSelectMode}
+        onSelectPriority={onSelectPriority}
         onSelectTransitStrategy={onSelectTransitStrategy}
         onSelectTransitCandidate={onSelectTransitCandidate}
+        onSaveItinerary={onSaveItinerary}
         strategyChangeDisabled={strategyChangeDisabled}
+        saveDisabled={saveDisabled}
       />
     )
   }
@@ -970,9 +1186,11 @@ function App() {
     initialSession.pendingActions,
   )
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [itineraries, setItineraries] = useState<SavedItinerary[]>([])
+  const [itinerariesExpanded, setItinerariesExpanded] = useState(false)
   const [isLoadingItineraries, setIsLoadingItineraries] = useState(false)
   const [itineraryError, setItineraryError] = useState('')
   const [deletingItineraryId, setDeletingItineraryId] = useState('')
@@ -1207,13 +1425,14 @@ function App() {
             streamEvent.type === 'result_card'
             && streamEvent.card
           ) {
+            const resultCard = streamEvent.card as ResultCard
             if (
-              streamEvent.card.type === 'planning'
+              resultCard.type === 'planning'
               && replanSource != null
             ) {
               setReplanComparison({
                 original: replanSource,
-                current: streamEvent.card,
+                current: resultCard,
               })
               setReplanningItinerary(null)
             }
@@ -1222,10 +1441,17 @@ function App() {
                 currentMessage.id === assistantMessageId
                   ? {
                       ...currentMessage,
-                      cards: [
-                        ...(currentMessage.cards ?? []),
-                        streamEvent.card as ResultCard,
-                      ],
+                      cards: resultCard.type === 'planning'
+                        ? [
+                            ...(currentMessage.cards ?? []).filter(
+                              (card) => card.type !== 'planning',
+                            ),
+                            resultCard,
+                          ]
+                        : [
+                            ...(currentMessage.cards ?? []),
+                            resultCard,
+                          ],
                     }
                   : currentMessage,
               ),
@@ -1285,6 +1511,9 @@ function App() {
 
     setIsDeciding(true)
     setChatError('')
+    const isItinerarySaveApproval = pendingActions.some(
+      (action) => action.name === 'save_itinerary',
+    )
 
     try {
       const result = await decideApproval(
@@ -1314,8 +1543,13 @@ function App() {
         assistantMessage,
       ])
       await refreshConversations()
-      if (decision === 'approve' && result.status === 'completed') {
+      if (
+        decision === 'approve'
+        && result.status === 'completed'
+        && isItinerarySaveApproval
+      ) {
         await refreshItineraries()
+        setItinerariesExpanded(true)
       }
     } catch (error) {
       const errorText = error instanceof Error ? error.message : '未知错误'
@@ -1347,105 +1581,155 @@ function App() {
 
       <div className="app-layout">
         <aside className="history-panel" aria-labelledby="history-title">
-          <div className="history-heading">
-            <h2 id="history-title">历史会话</h2>
-            <button
-              type="button"
-              className="button-secondary history-refresh"
-              onClick={() => void refreshConversations()}
-              disabled={isLoadingHistory}
-            >
-              刷新
-            </button>
+          <div className="sidebar-section">
+            <div className="history-heading">
+              <h2 id="history-title">
+                <button
+                  type="button"
+                  className="sidebar-section-toggle"
+                  aria-label={`历史会话（${conversations.length}）${historyExpanded ? '收起' : '展开'}`}
+                  aria-expanded={historyExpanded}
+                  aria-controls="history-content"
+                  onClick={() => setHistoryExpanded((expanded) => !expanded)}
+                >
+                  <span>历史会话</span>
+                  <small>{conversations.length}</small>
+                  <span aria-hidden="true">{historyExpanded ? '收起' : '展开'}</span>
+                </button>
+              </h2>
+              {historyExpanded && (
+                <button
+                  type="button"
+                  className="button-secondary history-refresh"
+                  onClick={() => void refreshConversations()}
+                  disabled={isLoadingHistory}
+                >
+                  刷新
+                </button>
+              )}
+            </div>
+
+            {historyExpanded && (
+              <div id="history-content" className="sidebar-section-body">
+                {historyError && (
+                  <p role="alert">历史加载失败：{historyError}</p>
+                )}
+                {conversations.length === 0 && !historyError && (
+                  <p className="history-empty">还没有已保存的会话。</p>
+                )}
+                <nav aria-label="历史会话列表">
+                  <ul className="history-list">
+                    {conversations.map((conversation) => (
+                      <li className="history-row" key={conversation.thread_id}>
+                        <button
+                          type="button"
+                          className={
+                            conversation.thread_id === threadId
+                              ? 'history-item history-item-active'
+                              : 'history-item'
+                          }
+                          onClick={() =>
+                            void handleLoadConversation(conversation.thread_id)}
+                          disabled={
+                            isLoadingHistory
+                            || isSending
+                            || isDeciding
+                            || pendingActions.length > 0
+                            || conversation.status === 'approval_required'
+                          }
+                        >
+                          <strong>{conversation.title}</strong>
+                          <span>
+                            {conversation.status === 'ready'
+                              ? '已完成'
+                              : conversation.status === 'approval_required'
+                                ? '等待审批'
+                                : '执行失败'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="history-delete"
+                          aria-label={`删除会话：${conversation.title}`}
+                          title="删除会话"
+                          onClick={() =>
+                            void handleDeleteConversation(conversation)}
+                          disabled={isLoadingHistory || isSending || isDeciding}
+                        >
+                          删除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              </div>
+            )}
           </div>
 
-          {historyError && <p role="alert">历史加载失败：{historyError}</p>}
-          {conversations.length === 0 && !historyError && (
-            <p className="history-empty">还没有已保存的会话。</p>
-          )}
-          <nav aria-label="历史会话列表">
-            <ul className="history-list">
-              {conversations.map((conversation) => (
-                <li className="history-row" key={conversation.thread_id}>
-                  <button
-                    type="button"
-                    className={
-                      conversation.thread_id === threadId
-                        ? 'history-item history-item-active'
-                        : 'history-item'
-                    }
-                    onClick={() =>
-                      void handleLoadConversation(conversation.thread_id)}
-                    disabled={
-                      isLoadingHistory
-                      || isSending
-                      || isDeciding
-                      || pendingActions.length > 0
-                      || conversation.status === 'approval_required'
-                    }
-                  >
-                    <strong>{conversation.title}</strong>
-                    <span>
-                      {conversation.status === 'ready'
-                        ? '已完成'
-                        : conversation.status === 'approval_required'
-                          ? '等待审批'
-                          : '执行失败'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="history-delete"
-                    aria-label={`删除会话：${conversation.title}`}
-                    title="删除会话"
-                    onClick={() =>
-                      void handleDeleteConversation(conversation)}
-                    disabled={isLoadingHistory || isSending || isDeciding}
-                  >
-                    删除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          <div className="saved-itinerary-panel">
+          <div className="saved-itinerary-panel sidebar-section">
             <div className="history-heading">
-              <h2 id="saved-itinerary-title">已保存行程</h2>
-              <button
-                type="button"
-                className="button-secondary history-refresh"
-                onClick={() => void refreshItineraries()}
-                disabled={isLoadingItineraries}
+              <h2 id="saved-itinerary-title">
+                <button
+                  type="button"
+                  className="sidebar-section-toggle"
+                  aria-label={`已保存行程（${itineraries.length}）${itinerariesExpanded ? '收起' : '展开'}`}
+                  aria-expanded={itinerariesExpanded}
+                  aria-controls="saved-itinerary-content"
+                  onClick={() =>
+                    setItinerariesExpanded((expanded) => !expanded)}
+                >
+                  <span>已保存行程</span>
+                  <small>{itineraries.length}</small>
+                  <span aria-hidden="true">
+                    {itinerariesExpanded ? '收起' : '展开'}
+                  </span>
+                </button>
+              </h2>
+              {itinerariesExpanded && (
+                <button
+                  type="button"
+                  className="button-secondary history-refresh"
+                  onClick={() => void refreshItineraries()}
+                  disabled={isLoadingItineraries}
+                >
+                  刷新
+                </button>
+              )}
+            </div>
+            {itinerariesExpanded && (
+              <div
+                id="saved-itinerary-content"
+                className="sidebar-section-body"
               >
-                刷新
-              </button>
-            </div>
-            {itineraryError && (
-              <p role="alert">行程加载失败：{itineraryError}</p>
+                {itineraryError && (
+                  <p role="alert">行程加载失败：{itineraryError}</p>
+                )}
+                {itineraries.length === 0 && !itineraryError && (
+                  <p className="history-empty">还没有已保存的行程。</p>
+                )}
+                <div
+                  className="saved-itinerary-list"
+                  aria-labelledby="saved-itinerary-title"
+                >
+                  {itineraries.map((itinerary) => (
+                    <SavedItineraryItem
+                      key={itinerary.itinerary_id}
+                      itinerary={itinerary}
+                      onDelete={(selected) =>
+                        void handleDeleteItinerary(selected)}
+                      onReplan={(selected) =>
+                        void handleReplanItinerary(selected)}
+                      deleteDisabled={
+                        deletingItineraryId === itinerary.itinerary_id
+                      }
+                      replanDisabled={
+                        isSending || isDeciding || pendingActions.length > 0
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
             )}
-            {itineraries.length === 0 && !itineraryError && (
-              <p className="history-empty">还没有已保存的行程。</p>
-            )}
-            <div
-              className="saved-itinerary-list"
-              aria-labelledby="saved-itinerary-title"
-            >
-              {itineraries.map((itinerary) => (
-                <SavedItineraryItem
-                  key={itinerary.itinerary_id}
-                  itinerary={itinerary}
-                  onDelete={(selected) => void handleDeleteItinerary(selected)}
-                  onReplan={(selected) => void handleReplanItinerary(selected)}
-                  deleteDisabled={
-                    deletingItineraryId === itinerary.itinerary_id
-                  }
-                  replanDisabled={
-                    isSending || isDeciding || pendingActions.length > 0
-                  }
-                />
-              ))}
-            </div>
           </div>
         </aside>
 
@@ -1483,30 +1767,8 @@ function App() {
         )}
       </section>
 
-      <section aria-labelledby="chat-title">
+      <section className="chat-section" aria-labelledby="chat-title">
         <h2 id="chat-title">和 Agent 对话</h2>
-
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="message">输入你的出行问题</label>
-          <textarea
-            id="message"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder="例如：深圳现在天气怎么样？"
-            rows={4}
-            disabled={isSending || isDeciding || pendingActions.length > 0}
-          />
-          <button
-            type="submit"
-            disabled={
-              isSending || !message.trim() || connectionState !== 'connected'
-              || isDeciding
-              || pendingActions.length > 0
-            }
-          >
-            {isSending ? 'Agent 正在处理……' : '发送问题'}
-          </button>
-        </form>
 
         {chatError && <p role="alert">请求失败：{chatError}</p>}
 
@@ -1542,6 +1804,12 @@ function App() {
                       || pendingActions.length > 0
                       || !cardIsLatest
                     }
+                    onSelectMode={(mode) => {
+                      void sendUserMessage(MODE_SELECTION_MESSAGES[mode])
+                    }}
+                    onSelectPriority={(priority) => {
+                      void sendUserMessage(PRIORITY_MESSAGES[priority])
+                    }}
                     onSelectTransitStrategy={(strategy) => {
                       void sendUserMessage(TRANSIT_STRATEGY_MESSAGES[strategy])
                     }}
@@ -1550,12 +1818,45 @@ function App() {
                         `选择公共交通候选${candidateIndex + 1}`,
                       )
                     }}
+                    onSaveItinerary={cardIsLatest ? () => {
+                      void sendUserMessage('保存当前选择的行程')
+                    } : undefined}
+                    saveDisabled={
+                      isSending
+                      || pendingActions.length > 0
+                    }
                   />
                 )
               })}
             </article>
           ))}
         </div>
+
+        <form className="chat-composer" onSubmit={handleSubmit}>
+          <label htmlFor="message">继续和 Agent 对话</label>
+          <div className="chat-composer-row">
+            <textarea
+              id="message"
+              aria-label="输入你的出行问题"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="输入出行问题或补充偏好……"
+              rows={3}
+              disabled={isSending || isDeciding || pendingActions.length > 0}
+            />
+            <button
+              type="submit"
+              aria-label="发送问题"
+              disabled={
+                isSending || !message.trim() || connectionState !== 'connected'
+                || isDeciding
+                || pendingActions.length > 0
+              }
+            >
+              {isSending ? 'Agent 正在处理……' : '发送'}
+            </button>
+          </div>
+        </form>
 
         {threadId && <p>当前会话 ID：{threadId}</p>}
       </section>

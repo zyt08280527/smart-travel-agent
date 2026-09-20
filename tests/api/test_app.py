@@ -271,6 +271,7 @@ def test_chat_stream_returns_one_json_event_per_line() -> None:
     assert events[3].answer == "测试回答"
 
     raw_events = [json.loads(line) for line in response.text.splitlines()]
+    assert raw_events[0]["pending_actions"] == []
     assert raw_events[2]["card"]["type"] == "weather"
 
 

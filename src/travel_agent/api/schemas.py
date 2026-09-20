@@ -206,6 +206,7 @@ class PlanningResultCard(BaseModel):
     origin_name: str = Field(min_length=1)
     destination_name: str = Field(min_length=1)
     recommended_mode: Literal["driving", "walking", "transit"]
+    selected_mode: Literal["driving", "walking", "transit"] | None = None
     previous_recommended_mode: Literal["driving", "walking", "transit"] | None = None
     reused_previous_data: bool = False
     route_refreshed: bool = False

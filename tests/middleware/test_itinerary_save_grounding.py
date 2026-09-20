@@ -2,6 +2,7 @@ import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from tests.services.test_travel_replanning import build_payload
 from travel_agent.middleware.itinerary_save_grounding import (
     ItinerarySaveGroundingMiddleware,
 )
@@ -125,3 +126,87 @@ def test_save_without_route_snapshot_is_not_modified() -> None:
     )
 
     assert result is None
+
+
+def test_save_uses_explicitly_selected_mode_instead_of_system_recommendation() -> None:
+    payload = build_payload()
+    payload["selected_mode"] = "walking"
+    selected_message = AIMessage(
+        content="已选择步行方案",
+        additional_kwargs={"travel_planning_payload": payload},
+    )
+    save_message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "save_itinerary",
+                "args": {
+                    "title": "深大两校区步行",
+                    "origin": "错误起点",
+                    "destination": "错误终点",
+                    "travel_mode": "driving",
+                    "distance_m": 1,
+                    "duration_s": 1,
+                    "duration_basis": "traffic_aware_estimate",
+                },
+                "id": "call-save",
+                "type": "tool_call",
+            }
+        ],
+    )
+
+    result = ItinerarySaveGroundingMiddleware().after_model(
+        {
+            "messages": [
+                selected_message,
+                HumanMessage(content="保存当前选择的行程"),
+                save_message,
+            ]
+        },
+        object(),
+    )
+
+    assert result is not None
+    corrected = result["messages"][0].tool_calls[0]["args"]
+    assert corrected["origin"] == "粤海校区"
+    assert corrected["destination"] == "丽湖校区"
+    assert corrected["travel_mode"] == "walking"
+    assert corrected["distance_m"] == 12_500
+    assert corrected["duration_s"] == 9_000
+    assert corrected["duration_basis"] == "static_without_live_traffic"
+
+
+def test_save_planning_result_requires_explicit_mode_selection() -> None:
+    payload = build_payload()
+    payload["selected_mode"] = None
+    route_message = AIMessage(
+        content="已生成综合出行建议",
+        additional_kwargs={"travel_planning_payload": payload},
+    )
+    save_message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "save_itinerary",
+                "args": {"title": "未确认的行程"},
+                "id": "call-save",
+                "type": "tool_call",
+            }
+        ],
+    )
+
+    result = ItinerarySaveGroundingMiddleware().after_model(
+        {
+            "messages": [
+                route_message,
+                HumanMessage(content="保存当前行程"),
+                save_message,
+            ]
+        },
+        object(),
+    )
+
+    assert result is not None
+    response = result["messages"][0]
+    assert response.tool_calls == []
+    assert "先在规划卡片中选择最终出行方式" in response.content

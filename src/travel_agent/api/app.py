@@ -181,7 +181,6 @@ def create_app(
             ):
                 payload = event.model_dump_json(
                     exclude_none=True,
-                    exclude_defaults=True,
                 )
                 yield f"{payload}\n"
 

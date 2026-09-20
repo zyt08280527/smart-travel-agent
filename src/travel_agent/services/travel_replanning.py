@@ -5,6 +5,7 @@ from datetime import datetime
 from travel_agent.domain.decision import (
     JourneyContext,
     TravelComparisonResult,
+    TravelMode,
     TravelOption,
     TravelPreferences,
 )
@@ -82,6 +83,7 @@ def replan_from_payload(
     *,
     preference_updates: dict[str, object],
     transit_candidate_index: int | None = None,
+    selected_mode: TravelMode | None = None,
 ) -> dict[str, object]:
     """Apply preference changes to a prior planning payload and score again."""
     context_value = payload.get("context")
@@ -209,12 +211,27 @@ def replan_from_payload(
             }
         )
 
+    available_modes = {
+        scored.option.mode for scored in recommendation.ranked_options
+    }
+    previous_selected_mode = payload.get("selected_mode")
+    effective_selected_mode = selected_mode or (
+        previous_selected_mode
+        if previous_selected_mode in {"driving", "walking", "transit"}
+        else None
+    )
+    if selected_mode is not None and selected_mode not in available_modes:
+        raise ValueError("所选交通方式当前不可用")
+    if effective_selected_mode not in available_modes:
+        effective_selected_mode = None
+
     result = TravelComparisonResult(
         context=context.model_copy(update={"preferences": preferences}),
         recommendation=recommendation,
         recommendation_variants=recommendation_variants,
         transit_candidates=transit_candidates,
         selected_transit_candidate_index=selected_transit_candidate_index,
+        selected_mode=effective_selected_mode,
     )
     return result.model_dump(mode="json")
 

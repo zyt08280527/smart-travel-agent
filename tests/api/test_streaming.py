@@ -676,6 +676,7 @@ def test_expired_snapshot_refresh_is_exposed_on_planning_card() -> None:
 
 def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
     payload = {
+        "selected_mode": "transit",
         "context": {
             "origin_name": "粤海校区",
             "destination_name": "丽湖校区",
@@ -754,6 +755,7 @@ def test_local_replan_ai_message_becomes_changed_planning_card() -> None:
     assert card.type == "planning"
     assert card.previous_recommended_mode == "driving"
     assert card.recommended_mode == "transit"
+    assert card.selected_mode == "transit"
     assert card.reused_previous_data is True
     assert card.preferences.can_drive is False
     assert card.recommendation_variants[0].priority == "cheapest"

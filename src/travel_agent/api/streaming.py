@@ -364,6 +364,7 @@ def _planning_card_from_payload(
             origin_name=context["origin_name"],
             destination_name=context["destination_name"],
             recommended_mode=recommendation["recommended_mode"],
+            selected_mode=payload.get("selected_mode"),
             previous_recommended_mode=previous_recommended_mode,
             reused_previous_data=reused_previous_data,
             route_refreshed=route_refreshed,
@@ -417,6 +418,7 @@ def result_card_from_ai_message(
     return _planning_card_from_payload(
         payload,
         reused_previous_data=metadata.get("reused_previous_data") is True,
+        route_refreshed=metadata.get("route_refreshed") is True,
         used_stale_snapshot=metadata.get("used_stale_snapshot") is True,
         refresh_failed=metadata.get("refresh_failed") is True,
         previous_recommended_mode=metadata.get("previous_recommended_mode"),

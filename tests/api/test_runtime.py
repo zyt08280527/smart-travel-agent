@@ -61,7 +61,17 @@ class FakeAgent:
                 ),
             }
         return {
-            "messages": [AIMessage(content="行程已成功保存。")],
+            "messages": [
+                ToolMessage(
+                    content=(
+                        '{"ok":true,"itinerary":'
+                        '{"itinerary_id":"saved-id"}}'
+                    ),
+                    tool_call_id="call-save",
+                    name="save_itinerary",
+                ),
+                AIMessage(content="行程已成功保存。"),
+            ],
         }
 
     async def aget_state(self, _config: dict[str, object]) -> Any:
@@ -249,7 +259,9 @@ async def test_runtime_keeps_agent_alive_across_chat_and_approval(
         ApprovalRequest(decision="approve"),
     )
     assert completed.status == "completed"
-    assert completed.answer == "行程已成功保存。"
+    assert completed.answer == (
+        "行程已保存成功，可在左侧“已保存行程”中查看。"
+    )
     assert len(fake_agent.calls) == 2
 
     history = await repository.get_conversation(THREAD_ID)

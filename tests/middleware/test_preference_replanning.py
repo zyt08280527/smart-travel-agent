@@ -1,16 +1,27 @@
 import json
 from datetime import timedelta
 
+import pytest
+from langchain.agents import create_agent
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
 
 from tests.services.test_travel_replanning import SNAPSHOT_AT, build_payload
+from travel_agent.middleware.arrival_deadline_routing import (
+    ArrivalDeadlineRoutingMiddleware,
+)
 from travel_agent.middleware.preference_replanning import (
     PreferenceReplanningMiddleware,
+    parse_mode_selection,
     parse_preference_updates,
     parse_transit_candidate_selection,
 )
 from travel_agent.middleware.recommendation_explanation import (
     RecommendationExplanationMiddleware,
+)
+from travel_agent.middleware.travel_request_clarification import (
+    TravelRequestClarificationMiddleware,
 )
 
 
@@ -169,6 +180,103 @@ def test_parse_supported_preference_updates() -> None:
     assert parse_transit_candidate_selection("选择公共交通候选2") == 1
     assert parse_transit_candidate_selection("切换到候选 1") == 0
     assert parse_transit_candidate_selection("候选0") is None
+    assert parse_mode_selection("选择驾车方案") == "driving"
+    assert parse_mode_selection("选择公共交通方案") == "transit"
+    assert parse_mode_selection("切换到步行方式") == "walking"
+
+
+def test_top_level_mode_selection_updates_authoritative_snapshot() -> None:
+    result = replanning_middleware().before_model(
+        {
+            "messages": [
+                *previous_plan_messages(),
+                HumanMessage(content="选择公共交通方案"),
+            ]
+        },
+        object(),
+    )
+
+    assert result is not None
+    assert result["jump_to"] == "end"
+    response = result["messages"][0]
+    assert isinstance(response, AIMessage)
+    payload = response.additional_kwargs["travel_planning_payload"]
+    assert payload["selected_mode"] == "transit"
+    assert "已选择公共交通方案" in str(response.content)
+    assert response.additional_kwargs["travel_planning_update"] == {
+        "reused_previous_data": True,
+        "manual_mode_selection": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_mode_selection_bypasses_model_in_real_agent_graph() -> None:
+    @tool
+    def placeholder_tool() -> str:
+        """Provide a placeholder tools node for middleware jump validation."""
+        return "unused"
+
+    model = FakeMessagesListChatModel(
+        responses=[AIMessage(content="不应该调用模型")]
+    )
+    agent = create_agent(
+        model=model,
+        tools=[placeholder_tool],
+        middleware=[replanning_middleware()],
+    )
+
+    result = await agent.ainvoke(
+        {
+            "messages": [
+                *previous_plan_messages(),
+                HumanMessage(content="选择公共交通方案"),
+            ]
+        }
+    )
+
+    response = result["messages"][-1]
+    assert isinstance(response, AIMessage)
+    assert "已选择公共交通方案" in str(response.content)
+    assert "不应该调用模型" not in str(response.content)
+    assert response.additional_kwargs["travel_planning_payload"]["selected_mode"] == (
+        "transit"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mode_selection_bypasses_model_with_production_middleware_order() -> None:
+    @tool
+    def placeholder_tool() -> str:
+        """Provide a placeholder tools node for middleware jump validation."""
+        return "unused"
+
+    model = FakeMessagesListChatModel(
+        responses=[AIMessage(content="不应该调用模型")]
+    )
+    agent = create_agent(
+        model=model,
+        tools=[placeholder_tool],
+        middleware=[
+            TravelRequestClarificationMiddleware(clock=lambda: SNAPSHOT_AT),
+            ArrivalDeadlineRoutingMiddleware(),
+            replanning_middleware(),
+            RecommendationExplanationMiddleware(),
+        ],
+    )
+
+    result = await agent.ainvoke(
+        {
+            "messages": [
+                *previous_plan_messages(),
+                HumanMessage(content="选择公共交通方案"),
+            ]
+        }
+    )
+
+    response = result["messages"][-1]
+    assert isinstance(response, AIMessage)
+    assert "已选择公共交通方案" in str(response.content)
+    assert "不应该调用模型" not in str(response.content)
 
 
 def test_concrete_transit_candidate_selection_updates_snapshot_locally() -> None:
@@ -189,6 +297,7 @@ def test_concrete_transit_candidate_selection_updates_snapshot_locally() -> None
     assert "本轮没有重新请求外部服务" in str(response.content)
     payload = response.additional_kwargs["travel_planning_payload"]
     assert payload["selected_transit_candidate_index"] == 0
+    assert payload["selected_mode"] == "transit"
     transit = next(
         scored["option"]
         for scored in payload["recommendation"]["ranked_options"]

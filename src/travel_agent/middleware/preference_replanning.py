@@ -11,7 +11,11 @@ from zoneinfo import ZoneInfo
 from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from travel_agent.domain.decision import JourneyContext
+from travel_agent.domain.decision import (
+    JourneyContext,
+    TravelComparisonResult,
+    TravelMode,
+)
 from travel_agent.domain.transit import TransitPlan
 from travel_agent.middleware.recommendation_explanation import (
     latest_planning_payload,
@@ -50,6 +54,23 @@ _TRANSFER_LIMIT_PATTERNS = (
 _TRANSIT_CANDIDATE_PATTERN = re.compile(
     r"(?:选择|改选|切换到?)\s*(?:公共交通)?候选\s*(\d+)"
 )
+_MODE_SELECTION_PATTERN = re.compile(
+    r"(?:选择|改选|切换到?)\s*(驾车|开车|公共交通|公交|地铁|步行)"
+    r"(?:方案|方式|行程)?"
+)
+_MODE_SELECTIONS = {
+    "驾车": "driving",
+    "开车": "driving",
+    "公共交通": "transit",
+    "公交": "transit",
+    "地铁": "transit",
+    "步行": "walking",
+}
+_MODE_NAMES = {
+    "driving": "驾车",
+    "transit": "公共交通",
+    "walking": "步行",
+}
 _CHINESE_NUMBERS = {
     "零": 0,
     "一": 1,
@@ -187,6 +208,15 @@ def parse_transit_candidate_selection(content: str) -> int | None:
     return candidate_number - 1 if candidate_number > 0 else None
 
 
+def parse_mode_selection(content: str) -> TravelMode | None:
+    """Return the explicitly confirmed top-level travel mode."""
+    match = _MODE_SELECTION_PATTERN.search(content)
+    if match is None:
+        return None
+    selected = _MODE_SELECTIONS.get(match.group(1))
+    return selected if selected in {"driving", "transit", "walking"} else None
+
+
 def parse_preference_updates(content: str) -> dict[str, object]:
     """Extract supported deterministic preference changes from one follow-up."""
     updates: dict[str, object] = {}
@@ -225,6 +255,7 @@ def parse_preference_updates(content: str) -> dict[str, object]:
         updates["transit_strategy"] = "recommended"
 
     priority_patterns = (
+        ("balanced", ("均衡考虑", "均衡优先", "恢复均衡")),
         ("least_walking", ("优先少步行", "尽量少步行", "步行最少", "少走路")),
         ("fewest_transfers", ("优先少换乘", "尽量少换乘", "换乘最少")),
         ("cheapest", ("优先省钱", "费用优先", "价格优先", "最便宜", "最低费用")),
@@ -264,7 +295,6 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
             if (
                 failed_tool.name == "recommend_travel_plan"
                 and failed_tool.tool_call_id.startswith("refresh-plan-")
-                and _tool_failed(failed_tool)
             ):
                 metadata = _refresh_request_metadata(
                     list(messages[:-1]),
@@ -272,6 +302,41 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
                 )
                 if metadata is not None:
                     previous_payload, preference_updates, previous_mode = metadata
+                    if not _tool_failed(failed_tool):
+                        payloads = _message_json_payloads(failed_tool)
+                        if payloads:
+                            payload = payloads[-1]
+                            selected_mode = previous_payload.get("selected_mode")
+                            if selected_mode in {"driving", "walking", "transit"}:
+                                payload["selected_mode"] = selected_mode
+                            try:
+                                payload = TravelComparisonResult.model_validate(
+                                    payload
+                                ).model_dump(mode="json")
+                            except ValueError:
+                                return None
+                            rendered = render_planning_payload(payload)
+                            if rendered is None:
+                                return None
+                            return {
+                                "jump_to": "end",
+                                "messages": [
+                                    AIMessage(
+                                        content=(
+                                            "已刷新路线并应用新的方案偏好。\n\n"
+                                            f"{rendered}"
+                                        ),
+                                        additional_kwargs={
+                                            "travel_planning_payload": payload,
+                                            "travel_planning_update": {
+                                                "reused_previous_data": False,
+                                                "route_refreshed": True,
+                                                "previous_recommended_mode": previous_mode,
+                                            },
+                                        },
+                                    )
+                                ],
+                            }
                     if "transit_strategy" in preference_updates:
                         return {
                             "jump_to": "end",
@@ -380,6 +445,7 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
                     previous_payload,
                     preference_updates={},
                     transit_candidate_index=transit_candidate_index,
+                    selected_mode="transit",
                 )
             except ValueError as exc:
                 return {
@@ -410,6 +476,44 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
                                 "reused_previous_data": True,
                                 "manual_transit_selection": True,
                                 "previous_recommended_mode": previous_mode,
+                            },
+                        },
+                    )
+                ],
+                }
+        selected_mode = parse_mode_selection(content)
+        if selected_mode is not None:
+            previous_payload = latest_planning_payload(list(messages[:-1]))
+            if previous_payload is None:
+                return None
+            try:
+                payload = replan_from_payload(
+                    previous_payload,
+                    preference_updates={},
+                    selected_mode=selected_mode,
+                )
+            except ValueError as exc:
+                return {
+                    "jump_to": "end",
+                    "messages": [AIMessage(content=f"无法选择该方案：{exc}。")],
+                }
+            rendered = render_planning_payload(payload)
+            if rendered is None:
+                return None
+            return {
+                "jump_to": "end",
+                "messages": [
+                    AIMessage(
+                        content=(
+                            f"已选择{_MODE_NAMES[selected_mode]}方案。"
+                            "接下来可以继续调整该方案的细节，或确认保存。\n\n"
+                            f"{rendered}"
+                        ),
+                        additional_kwargs={
+                            "travel_planning_payload": payload,
+                            "travel_planning_update": {
+                                "reused_previous_data": True,
+                                "manual_mode_selection": True,
                             },
                         },
                     )

@@ -43,6 +43,18 @@ header h1 {
 .history-panel {
   position: sticky;
   top: 24px;
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
+.sidebar-section {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--social-bg);
 }
 
 .history-heading {
@@ -54,6 +66,49 @@ header h1 {
 
 .history-heading h2 {
   margin: 0;
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-section-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: var(--text-h);
+  background: transparent;
+  text-align: left;
+  font-size: 18px;
+}
+
+.sidebar-section-toggle:hover:not(:disabled) {
+  background: transparent;
+}
+
+.sidebar-section-toggle small {
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sidebar-section-toggle span:last-child {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sidebar-section-body {
+  max-height: min(42vh, 440px);
+  margin-top: 12px;
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .history-refresh {
@@ -124,9 +179,7 @@ header h1 {
 }
 
 .saved-itinerary-panel {
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
+  margin-top: 0;
 }
 
 .saved-itinerary-list {
@@ -307,7 +360,38 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 24px;
+  min-height: 180px;
+  margin-top: 12px;
+  padding-bottom: 8px;
+}
+
+.chat-composer {
+  position: sticky;
+  bottom: 12px;
+  z-index: 1000;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 12%);
+  backdrop-filter: blur(12px);
+}
+
+.chat-composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.chat-composer-row textarea {
+  min-height: 72px;
+  max-height: 180px;
+}
+
+.chat-composer-row button {
+  min-width: 88px;
 }
 
 .message {
@@ -467,6 +551,9 @@ button:disabled {
 }
 
 .route-map {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
   margin: 1rem 0;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -475,6 +562,7 @@ button:disabled {
 }
 
 .route-map-canvas {
+  z-index: 0;
   width: 100%;
   height: 280px;
 }
@@ -579,6 +667,58 @@ button:disabled {
   font-size: 12px;
 }
 
+.planning-trip-preferences {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-bg);
+}
+
+.planning-trip-preferences .planning-preference-group-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.planning-trip-preferences .planning-preference-group-heading > div small {
+  display: block;
+}
+
+.planning-trip-preferences .planning-preference-group-heading > span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.planning-trip-preferences .planning-variant-tabs,
+.planning-trip-preferences .planning-preferences {
+  margin-top: 10px;
+}
+
+.planning-advanced-preferences {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--accent-border);
+}
+
+.planning-advanced-preferences summary {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.planning-advanced-preferences > div {
+  margin-top: 10px;
+}
+
+.planning-advanced-preferences > div > span {
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .planning-variant-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -630,6 +770,95 @@ button:disabled {
   background: var(--bg);
 }
 
+.planning-step-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--text-h);
+}
+
+.planning-step-heading small {
+  color: var(--text);
+}
+
+.planning-mode-selection li {
+  border: 1px solid transparent;
+}
+
+.planning-mode-selection li.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.planning-mode-selection strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.planning-mode-selection em {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.planning-mode-selection li > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-width: 112px;
+}
+
+.planning-selection-hint {
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px dashed var(--accent-border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--accent-bg);
+}
+
+.planning-refinement {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-bg);
+}
+
+.planning-refinement .planning-step-heading {
+  margin-top: 0;
+}
+
+.planning-preference-group {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.planning-preference-group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-h);
+}
+
+.planning-preference-group-heading small {
+  color: var(--text);
+}
+
+.transit-preference-group {
+  margin-bottom: 14px;
+}
+
 .planning-ranking strong,
 .planning-ranking span {
   color: var(--text-h);
@@ -649,6 +878,49 @@ button:disabled {
   margin-top: 14px;
 }
 
+.planning-save-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.planning-save-summary {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-bg);
+}
+
+.planning-save-summary .planning-step-heading {
+  margin-top: 0;
+}
+
+.planning-save-summary h5 {
+  margin: 12px 0 4px;
+  color: var(--text-h);
+  font-size: 17px;
+}
+
+.planning-save-summary p {
+  margin: 4px 0;
+  color: var(--text);
+}
+
+.planning-save-actions button {
+  flex: 0 0 auto;
+}
+
+.planning-save-actions small {
+  color: var(--text);
+  line-height: 1.45;
+}
+
 .planning-transit-heading {
   display: flex;
   align-items: baseline;
@@ -659,6 +931,29 @@ button:disabled {
 
 .planning-transit-heading small {
   color: var(--text);
+}
+
+.planning-selected-route-map {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-bg);
+}
+
+.planning-selected-route-map .route-map {
+  margin-bottom: 0;
+}
+
+.planning-selected-route-label {
+  display: grid;
+  gap: 3px;
+  color: var(--text-h);
+}
+
+.planning-selected-route-label span {
+  color: var(--text);
+  font-size: 13px;
 }
 
 .planning-transit-strategies {
@@ -761,6 +1056,13 @@ button:disabled {
   font-size: 11px;
   font-style: normal;
   font-weight: 600;
+}
+
+.planning-transit-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
 }
 
 .planning-transit-lines {
@@ -959,5 +1261,17 @@ button:disabled {
   .approval-card dl > div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .chat-composer {
+    bottom: 8px;
+  }
+
+  .chat-composer-row {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-composer-row button {
+    width: 100%;
   }
 }
