@@ -12,6 +12,11 @@ from travel_agent.services.amap_coordinate import (
     AmapCoordinateServiceError,
 )
 from travel_agent.services.route import RouteNotFoundError, RouteServiceError
+from travel_agent.services.route_geometry import (
+    compact_geometry,
+    merge_geometry,
+    parse_amap_polyline,
+)
 
 AMAP_WALKING_URL = "https://restapi.amap.com/v5/direction/walking"
 AMAP_WALKING_ATTRIBUTION = "步行路线数据来源：高德地图 Web服务 API"
@@ -72,7 +77,7 @@ class AmapWalkingRouteService:
                     "key": api_key,
                     "origin": self._format_coordinate(amap_points[0]),
                     "destination": self._format_coordinate(amap_points[1]),
-                    "show_fields": "cost,navi",
+                    "show_fields": "cost,navi,polyline",
                     "output": "json",
                 },
                 headers={"User-Agent": AMAP_USER_AGENT},
@@ -119,6 +124,12 @@ class AmapWalkingRouteService:
             duration_s=cost["duration"],
             duration_basis="static_without_live_traffic",
             steps=[cls._parse_step(step) for step in path.get("steps", [])],
+            geometry=compact_geometry(
+                merge_geometry(
+                    parse_amap_polyline(step.get("polyline"))
+                    for step in path.get("steps", [])
+                )
+            ),
             attribution=AMAP_WALKING_ATTRIBUTION,
         )
 

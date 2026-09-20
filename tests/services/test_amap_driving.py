@@ -55,6 +55,10 @@ async def test_amap_driving_returns_traffic_aware_costs_and_segments() -> None:
                                     "step_distance": "1500",
                                     "cost": {"duration": "240"},
                                     "navi": {"action": "直行"},
+                                    "polyline": (
+                                        "113.936580,22.533180;"
+                                        "113.940000,22.540000"
+                                    ),
                                     "tmcs": [
                                         {
                                             "tmc_status": "拥堵",
@@ -88,12 +92,14 @@ async def test_amap_driving_returns_traffic_aware_costs_and_segments() -> None:
     assert result.restriction == 0
     assert result.traffic_segments[0].status == "拥堵"
     assert result.traffic_segments[0].road_name == "南海大道"
+    assert len(result.geometry) == 2
+    assert result.geometry[0].longitude < 113.936580
 
     request = route.calls.last.request
     assert request.url.params["origin"] == "113.936580,22.533180"
     assert request.url.params["destination"] == "113.993070,22.598250"
     assert request.url.params["strategy"] == "32"
-    assert request.url.params["show_fields"] == "cost,tmcs,navi"
+    assert request.url.params["show_fields"] == "cost,tmcs,navi,polyline"
 
 
 @pytest.mark.asyncio

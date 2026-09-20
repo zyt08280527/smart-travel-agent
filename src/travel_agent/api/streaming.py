@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from travel_agent.api.schemas import (
     AgentStreamEvent,
+    ItineraryListResultCard,
     PlaceCandidateCard,
     PlaceResultCard,
     PlanningExcludedOptionCard,
@@ -21,6 +22,7 @@ from travel_agent.api.schemas import (
     TransitResultCard,
     WeatherResultCard,
 )
+from travel_agent.domain.itinerary import SavedItinerary
 
 
 def _text_from_content(content: object) -> str:
@@ -123,6 +125,7 @@ def _route_card(message: ToolMessage) -> RouteResultCard | None:
             restriction=payload.get("restriction"),
             traffic_status_counts=traffic_status_counts,
             step_count=payload["step_count"],
+            geometry=payload.get("geometry", []),
             attribution=payload["attribution"],
         )
     except (KeyError, TypeError, ValidationError):
@@ -172,6 +175,7 @@ def _transit_candidate_cards(
                 transfer_count=candidate["transfer_count"],
                 line_names=line_names,
                 legs=leg_cards,
+                geometry=candidate.get("geometry", []),
             )
         )
     return cards
@@ -309,6 +313,7 @@ def _planning_card_from_payload(
                     walking_distance_m=option.get("walking_distance_m"),
                     transfer_count=option.get("transfer_count"),
                     latest_departure_at=option.get("latest_departure_at"),
+                    geometry=option.get("geometry", []),
                 )
             )
         return cards
@@ -418,6 +423,26 @@ def result_card_from_ai_message(
     )
 
 
+def _itinerary_list_card(message: ToolMessage) -> ItineraryListResultCard | None:
+    if message.name != "list_itineraries":
+        return None
+    payload = _tool_json_payload(message)
+    if payload is None or payload.get("ok") is False:
+        return None
+    itineraries = payload.get("itineraries")
+    if not isinstance(itineraries, list):
+        return None
+    try:
+        records = [SavedItinerary.model_validate(item) for item in itineraries]
+        return ItineraryListResultCard(
+            type="itinerary_list",
+            count=len(records),
+            itineraries=records,
+        )
+    except (TypeError, ValidationError):
+        return None
+
+
 def result_card_from_tool_message(
     message: ToolMessage,
 ) -> (
@@ -425,6 +450,7 @@ def result_card_from_tool_message(
     | RouteResultCard
     | TransitResultCard
     | PlaceResultCard
+    | ItineraryListResultCard
     | None
 ):
     """Build one public result card from a supported tool message."""
@@ -434,6 +460,7 @@ def result_card_from_tool_message(
         or _transit_card(message)
         or _place_card(message)
         or _planning_tool_card(message)
+        or _itinerary_list_card(message)
     )
 
 

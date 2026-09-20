@@ -16,6 +16,7 @@ class TransitLeg(BaseModel):
     departure_stop: str | None = None
     arrival_stop: str | None = None
     via_stop_count: int | None = Field(default=None, ge=0)
+    geometry: list[GeoPoint] = Field(default_factory=list)
 
 
 class TransitOption(BaseModel):
@@ -28,6 +29,7 @@ class TransitOption(BaseModel):
     night_service: bool = False
     transfer_count: int = Field(ge=0)
     legs: list[TransitLeg] = Field(min_length=1)
+    geometry: list[GeoPoint] = Field(default_factory=list)
 
 
 class TransitPlan(BaseModel):

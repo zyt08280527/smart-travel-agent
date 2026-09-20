@@ -24,7 +24,7 @@ def _parse_text_result(result: CallToolResult) -> dict[str, object]:
     return json.loads(content.text)
 
 
-def test_build_agent_payload_omits_geometry_coordinates() -> None:
+def test_build_agent_payload_includes_compact_geometry_coordinates() -> None:
     route = RoutePlan(
         origin=GeoPoint(latitude=22.5, longitude=113.9),
         destination=GeoPoint(latitude=22.6, longitude=114.0),
@@ -47,7 +47,10 @@ def test_build_agent_payload_omits_geometry_coordinates() -> None:
 
     payload = _build_agent_payload(route)
 
-    assert "geometry" not in payload
+    assert payload["geometry"] == [
+        {"latitude": 22.5, "longitude": 113.9},
+        {"latitude": 22.6, "longitude": 114.0},
+    ]
     assert payload["geometry_point_count"] == 2
     assert payload["step_count"] == 1
     assert payload["steps"][0]["road_name"] == "测试路"

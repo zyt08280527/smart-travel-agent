@@ -85,6 +85,7 @@ class TravelOption(BaseModel):
     tolls_yuan: float | None = Field(default=None, ge=0)
     taxi_cost_yuan: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
+    geometry: list[GeoPoint] = Field(default_factory=list)
     latest_departure_at: datetime | None = None
     traffic_status_counts: dict[str, int] = Field(default_factory=dict)
     attribution: str | None = None

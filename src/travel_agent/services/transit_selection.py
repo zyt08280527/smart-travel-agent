@@ -22,6 +22,7 @@ def normalize_transit_candidate(
         walking_distance_m=candidate.walking_distance_m,
         cost_yuan=candidate.cost_yuan,
         transfer_count=candidate.transfer_count,
+        geometry=candidate.geometry,
         attribution=attribution,
     )
 

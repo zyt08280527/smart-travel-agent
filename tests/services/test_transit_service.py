@@ -92,6 +92,10 @@ async def test_plan_transit_route_returns_normalized_plan() -> None:
                                             {
                                                 "instruction": "步行至校巴站",
                                                 "distance": "519",
+                                                "polyline": (
+                                                    "113.936340,22.532868;"
+                                                    "113.937000,22.534000"
+                                                ),
                                             }
                                         ],
                                     },
@@ -109,6 +113,10 @@ async def test_plan_transit_route_returns_normalized_plan() -> None:
                                                     "name": "丽湖校区"
                                                 },
                                                 "via_num": "0",
+                                                "polyline": (
+                                                    "113.937000,22.534000;"
+                                                    "113.991000,22.597000"
+                                                ),
                                             }
                                         ]
                                     },
@@ -121,6 +129,10 @@ async def test_plan_transit_route_returns_normalized_plan() -> None:
                                             {
                                                 "instruction": "步行至终点",
                                                 "distance": "320",
+                                                "polyline": (
+                                                    "113.991000,22.597000;"
+                                                    "113.992928,22.598090"
+                                                ),
                                             }
                                         ],
                                     },
@@ -153,13 +165,15 @@ async def test_plan_transit_route_returns_normalized_plan() -> None:
         "walking",
     ]
     assert option.legs[1].line_name == "深大校巴通勤车"
+    assert len(option.geometry) == 4
+    assert all(leg.geometry for leg in option.legs)
 
     request = transit_route.calls.last.request
     assert request.url.params["origin"] == "113.936340,22.532868"
     assert request.url.params["destination"] == "113.992928,22.598090"
     assert request.url.params["city1"] == "0755"
     assert request.url.params["city2"] == "0755"
-    assert request.url.params["show_fields"] == "cost"
+    assert request.url.params["show_fields"] == "cost,polyline"
 
 
 @pytest.mark.asyncio

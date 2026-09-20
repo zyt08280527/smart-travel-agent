@@ -16,6 +16,11 @@ from travel_agent.services.amap_coordinate import (
     AmapCoordinateService,
     AmapCoordinateServiceError,
 )
+from travel_agent.services.route_geometry import (
+    compact_geometry,
+    merge_geometry,
+    parse_amap_polyline,
+)
 
 AMAP_TRANSIT_URL = "https://restapi.amap.com/v5/direction/transit/integrated"
 AMAP_TRANSIT_ATTRIBUTION = "公交路线数据来源：高德地图 Web服务 API"
@@ -112,7 +117,7 @@ class TransitService:
                     "city2": destination_city.city_code,
                     "strategy": strategy,
                     "AlternativeRoute": alternative_routes,
-                    "show_fields": "cost",
+                    "show_fields": "cost,polyline",
                     "output": "json",
                 },
                 headers={"User-Agent": AMAP_USER_AGENT},
@@ -195,6 +200,9 @@ class TransitService:
             night_service=transit.get("nightflag") == "1",
             transfer_count=max(ride_count - 1, 0),
             legs=legs,
+            geometry=compact_geometry(
+                merge_geometry(leg.geometry for leg in legs)
+            ),
         )
 
     @staticmethod
@@ -220,6 +228,13 @@ class TransitService:
                 walking.get("cost", {}).get("duration")
             ),
             instruction="；".join(instructions) or None,
+            geometry=compact_geometry(
+                merge_geometry(
+                    parse_amap_polyline(step.get("polyline"))
+                    for step in steps
+                    if isinstance(step, dict)
+                )
+            ),
         )
 
     @staticmethod
@@ -248,6 +263,9 @@ class TransitService:
                 int(line["via_num"])
                 if str(line.get("via_num") or "").isdigit()
                 else None
+            ),
+            geometry=compact_geometry(
+                parse_amap_polyline(line.get("polyline"))
             ),
         )
 

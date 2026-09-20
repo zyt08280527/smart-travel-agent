@@ -267,6 +267,7 @@ class TravelPlanningService:
             taxi_cost_yuan=result.taxi_cost_yuan,
             transfer_count=0,
             traffic_status_counts=dict(traffic_counts),
+            geometry=result.geometry,
             attribution=result.attribution,
         )
 
@@ -286,6 +287,7 @@ class TravelPlanningService:
             walking_distance_m=result.distance_m,
             cost_yuan=0,
             transfer_count=0,
+            geometry=result.geometry,
             attribution=result.attribution,
         )
 

@@ -21,7 +21,7 @@ mcp = FastMCP("travel-route")
 
 def _build_agent_payload(route: RoutePlan) -> dict[str, object]:
     """Build a compact route payload for the language model."""
-    payload = route.model_dump(exclude={"geometry"})
+    payload = route.model_dump()
     payload["step_count"] = len(route.steps)
     payload["geometry_point_count"] = len(route.geometry)
     return payload
@@ -65,7 +65,7 @@ async def plan_driving_route(
     Returns:
         包含驾车距离、交通感知预计时长、通行费、出租车估价、
         红绿灯、限行、分路段交通状态、导航步骤和数据署名的 JSON 字符串。
-        为减少模型上下文消耗，不返回完整路线轨迹坐标。
+        路线轨迹最多保留80个WGS84坐标点，供前端地图展示。
     """
     with capture_external_http_requests() as requests:
         try:
@@ -111,7 +111,7 @@ async def plan_walking_route(
     Returns:
         包含步行距离、静态预计时长、导航步骤数量、中文导航步骤、
         路线轨迹点数量和数据署名的 JSON 字符串。
-        为减少模型上下文消耗，不返回完整路线轨迹坐标。
+        路线轨迹最多保留80个WGS84坐标点，供前端地图展示。
     """
     with capture_external_http_requests() as requests:
         try:

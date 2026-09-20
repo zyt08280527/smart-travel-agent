@@ -49,6 +49,10 @@ async def test_amap_walking_converts_coordinates_and_normalizes_route() -> None:
                                     "step_distance": "800",
                                     "cost": {"duration": "600"},
                                     "navi": {"action": "直行"},
+                                    "polyline": (
+                                        "113.936580,22.533180;"
+                                        "113.940000,22.540000"
+                                    ),
                                 }
                             ],
                         }
@@ -69,12 +73,13 @@ async def test_amap_walking_converts_coordinates_and_normalizes_route() -> None:
     assert result.duration_s == 4200
     assert result.duration_basis == "static_without_live_traffic"
     assert result.steps[0].instruction == "沿学府路向东步行"
+    assert len(result.geometry) == 2
     assert result.attribution.startswith("步行路线数据来源：高德地图")
 
     request = route.calls.last.request
     assert request.url.params["origin"] == "113.936580,22.533180"
     assert request.url.params["destination"] == "113.993070,22.598250"
-    assert request.url.params["show_fields"] == "cost,navi"
+    assert request.url.params["show_fields"] == "cost,navi,polyline"
 
 
 @pytest.mark.asyncio

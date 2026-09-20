@@ -4,9 +4,11 @@ import ReactMarkdown from 'react-markdown'
 import {
   decideApproval,
   deleteConversation,
+  deleteItinerary,
   getConversation,
   getConversations,
   getHealth,
+  getItineraries,
   streamChat,
 } from './api'
 import type {
@@ -18,9 +20,11 @@ import type {
   PlanningTransitCandidate,
   ResultCard,
   RouteResultCard,
+  SavedItinerary,
   TransitResultCard,
   WeatherResultCard,
 } from './api'
+import { RouteMap } from './RouteMap'
 import './App.css'
 
 type ConnectionState = 'loading' | 'connected' | 'error'
@@ -36,6 +40,11 @@ type StoredSession = {
   messages: ChatMessage[]
   threadId: string
   pendingActions: PendingAction[]
+}
+
+type ReplanComparison = {
+  original: SavedItinerary
+  current: PlanningResultCard
 }
 
 function isLatestRouteChoiceCard(
@@ -66,6 +75,7 @@ const TOOL_LABELS: Record<string, string> = {
   plan_transit_route: '公共交通路线规划',
   recommend_travel_plan: '综合出行推荐',
   save_itinerary: '行程保存',
+  list_itineraries: '已保存行程查询',
 }
 
 function loadStoredSession(): StoredSession {
@@ -160,6 +170,149 @@ function formatDuration(durationS: number): string {
   return `${totalMinutes} 分钟`
 }
 
+const TRAVEL_MODE_LABELS: Record<SavedItinerary['travel_mode'], string> = {
+  driving: '驾车',
+  walking: '步行',
+  transit: '公共交通',
+}
+
+function SavedItineraryItem({
+  itinerary,
+  onDelete,
+  onReplan,
+  deleteDisabled = false,
+  replanDisabled = false,
+}: {
+  itinerary: SavedItinerary
+  onDelete?: (itinerary: SavedItinerary) => void
+  onReplan?: (itinerary: SavedItinerary) => void
+  deleteDisabled?: boolean
+  replanDisabled?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  return (
+    <article className="saved-itinerary-item">
+      <button
+        type="button"
+        className="saved-itinerary-summary"
+        aria-expanded={isExpanded}
+        onClick={() => setIsExpanded((current) => !current)}
+      >
+        <span className="saved-itinerary-title">
+          <strong>{itinerary.title}</strong>
+          <span>{TRAVEL_MODE_LABELS[itinerary.travel_mode]}</span>
+        </span>
+      </button>
+      <p>{itinerary.origin} → {itinerary.destination}</p>
+      <p>
+        {formatDistance(itinerary.distance_m)} ·{' '}
+        {formatDuration(itinerary.duration_s)}
+      </p>
+      <time dateTime={itinerary.saved_at}>
+        {formatPlanningDateTime(itinerary.saved_at)} 保存
+      </time>
+      {isExpanded && (
+        <div className="saved-itinerary-details">
+          <p>
+            时长依据：
+            {itinerary.duration_basis === 'traffic_aware_estimate'
+              ? '查询时交通状况估计'
+              : '静态预计，不含实时路况'}
+          </p>
+          {itinerary.notes && <p>备注：{itinerary.notes}</p>}
+          <div className="saved-itinerary-actions">
+            {onReplan && (
+              <button
+                type="button"
+                onClick={() => onReplan(itinerary)}
+                disabled={replanDisabled}
+              >
+                按当前情况重新规划
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                className="saved-itinerary-delete"
+                onClick={() => onDelete(itinerary)}
+                disabled={deleteDisabled}
+              >
+                {deleteDisabled ? '正在删除……' : '删除行程'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </article>
+  )
+}
+
+function ReplanComparisonCard({ comparison }: { comparison: ReplanComparison }) {
+  const { original, current } = comparison
+  const currentOption = current.ranked_options.find(
+    (option) => option.mode === current.recommended_mode,
+  )
+  if (!currentOption) {
+    return null
+  }
+  const durationDifference = currentOption.duration_s - original.duration_s
+  const differenceLabel = Math.abs(durationDifference) < 30
+    ? '预计时长基本不变'
+    : durationDifference > 0
+      ? `比保存时慢 ${formatDuration(durationDifference)}`
+      : `比保存时快 ${formatDuration(Math.abs(durationDifference))}`
+
+  return (
+    <section className="replan-comparison" aria-labelledby="replan-title">
+      <h2 id="replan-title">重新规划对比</h2>
+      <p>{original.origin} → {original.destination}</p>
+      <div className="comparison-grid">
+        <article>
+          <h3>保存时方案</h3>
+          <strong>{TRAVEL_MODE_LABELS[original.travel_mode]}</strong>
+          <span>{formatDuration(original.duration_s)}</span>
+          <span>{formatDistance(original.distance_m)}</span>
+        </article>
+        <article>
+          <h3>当前推荐</h3>
+          <strong>{TRAVEL_MODE_LABELS[current.recommended_mode]}</strong>
+          <span>{formatDuration(currentOption.duration_s)}</span>
+          <span>{differenceLabel}</span>
+        </article>
+      </div>
+      {original.travel_mode !== current.recommended_mode && (
+        <p className="comparison-change">
+          推荐方式已从 {TRAVEL_MODE_LABELS[original.travel_mode]} 变为{' '}
+          {TRAVEL_MODE_LABELS[current.recommended_mode]}。
+        </p>
+      )}
+      <p className="result-card-time">
+        当前结果是重新查询后的路线快照，不是持续更新的实时导航。
+      </p>
+    </section>
+  )
+}
+
+function ItineraryListCard({ itineraries }: { itineraries: SavedItinerary[] }) {
+  return (
+    <section className="result-card itinerary-list-card">
+      <h4>已保存行程</h4>
+      {itineraries.length === 0 ? (
+        <p>目前还没有已保存的行程。</p>
+      ) : (
+        <div className="saved-itinerary-list">
+          {itineraries.map((itinerary) => (
+            <SavedItineraryItem
+              key={itinerary.itinerary_id}
+              itinerary={itinerary}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function RouteCard({ card }: { card: RouteResultCard }) {
   const modeLabel = card.mode === 'driving' ? '驾车路线' : '步行路线'
   const trafficAware = card.duration_basis === 'traffic_aware_estimate'
@@ -209,6 +362,12 @@ function RouteCard({ card }: { card: RouteResultCard }) {
         )}
       </dl>
 
+      <RouteMap
+        geometry={card.geometry ?? []}
+        mode={card.mode}
+        label={modeLabel}
+      />
+
       {trafficSummary && (
         <p className="result-card-notice">查询时路况：{trafficSummary}</p>
       )}
@@ -237,6 +396,8 @@ function TransitCard({
     card.line_names.length > 0
       ? card.line_names.join(' → ')
       : '线路名称未提供'
+  const selectedCandidate = card.options?.find((candidate) => candidate.selected)
+    ?? card.options?.[0]
 
   return (
     <section className="result-card transit-card" aria-label="公共交通路线">
@@ -244,7 +405,10 @@ function TransitCard({
         <div>
           <p className="result-card-kicker">路线规划</p>
           <h4>公共交通</h4>
-          <p>展示第 1 个方案，共 {card.option_count} 个候选</p>
+          <p>
+            展示第 {(selectedCandidate?.candidate_index ?? 0) + 1} 个方案，
+            共 {card.option_count} 个候选
+          </p>
         </div>
       </div>
 
@@ -270,6 +434,12 @@ function TransitCard({
           <dd>{costText}</dd>
         </div>
       </dl>
+
+      <RouteMap
+        geometry={selectedCandidate?.geometry ?? []}
+        mode="transit"
+        label="公共交通路线"
+      />
 
       <div className="transit-lines">
         <span>乘坐线路</span>
@@ -505,6 +675,9 @@ function PlanningCard({
   const selectedVariant = availableVariants.find(
     (variant) => variant.priority === selectedPriority,
   ) ?? availableVariants[0]
+  const selectedRoute = selectedVariant.ranked_options.find(
+    (option) => option.mode === selectedVariant.recommended_mode,
+  )
   const preferenceLabels = [PRIORITY_LABELS[card.preferences.priority]]
   if (card.preferences.can_drive === false) {
     preferenceLabels.push('不能驾车')
@@ -565,6 +738,12 @@ function PlanningCard({
           </>
         )}
       </div>
+
+      <RouteMap
+        geometry={selectedRoute?.geometry ?? []}
+        mode={selectedVariant.recommended_mode}
+        label={`${MODE_LABELS[selectedVariant.recommended_mode]}推荐路线`}
+      />
 
       {card.arrival_by != null && (
         <div className="planning-arrival" aria-label="到达时间安排">
@@ -766,6 +945,9 @@ function ResultCardView({
       />
     )
   }
+  if (card.type === 'itinerary_list') {
+    return <ItineraryListCard itineraries={card.itineraries} />
+  }
   return null
 }
 
@@ -790,6 +972,14 @@ function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState('')
+  const [itineraries, setItineraries] = useState<SavedItinerary[]>([])
+  const [isLoadingItineraries, setIsLoadingItineraries] = useState(false)
+  const [itineraryError, setItineraryError] = useState('')
+  const [deletingItineraryId, setDeletingItineraryId] = useState('')
+  const [replanningItinerary, setReplanningItinerary] =
+    useState<SavedItinerary | null>(null)
+  const [replanComparison, setReplanComparison] =
+    useState<ReplanComparison | null>(null)
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -799,6 +989,20 @@ function App() {
     } catch (error) {
       const errorText = error instanceof Error ? error.message : '未知错误'
       setHistoryError(errorText)
+    }
+  }, [])
+
+  const refreshItineraries = useCallback(async () => {
+    setIsLoadingItineraries(true)
+    try {
+      const savedItineraries = await getItineraries()
+      setItineraries(savedItineraries)
+      setItineraryError('')
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : '未知错误'
+      setItineraryError(errorText)
+    } finally {
+      setIsLoadingItineraries(false)
     }
   }, [])
 
@@ -817,7 +1021,8 @@ function App() {
 
     void loadHealth()
     void refreshConversations()
-  }, [refreshConversations])
+    void refreshItineraries()
+  }, [refreshConversations, refreshItineraries])
 
   useEffect(() => {
     const storedSession: StoredSession = {
@@ -838,6 +1043,8 @@ function App() {
     setMessage('')
     setChatError('')
     setActivityText('')
+    setReplanningItinerary(null)
+    setReplanComparison(null)
   }
 
   async function handleLoadConversation(selectedThreadId: string) {
@@ -895,9 +1102,43 @@ function App() {
     }
   }
 
+  async function handleDeleteItinerary(itinerary: SavedItinerary) {
+    const confirmed = window.confirm(
+      `确定删除已保存行程“${itinerary.title}”吗？\n此操作无法撤销。`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingItineraryId(itinerary.itinerary_id)
+    setItineraryError('')
+    try {
+      await deleteItinerary(itinerary.itinerary_id)
+      await refreshItineraries()
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : '未知错误'
+      setItineraryError(errorText)
+    } finally {
+      setDeletingItineraryId('')
+    }
+  }
+
+  async function handleReplanItinerary(itinerary: SavedItinerary) {
+    handleNewConversation()
+    setReplanningItinerary(itinerary)
+    const prompt = (
+      `请基于当前天气和查询时路线，重新规划从“${itinerary.origin}”到`
+      + `“${itinerary.destination}”的出行方案。请比较驾车、步行和公共交通，`
+      + '推荐当前更合适的一种方式；这次只重新规划，不要保存行程。'
+    )
+    await sendUserMessage(prompt, false, itinerary, true)
+  }
+
   async function sendUserMessage(
     rawMessage: string,
     clearComposer = false,
+    replanSource: SavedItinerary | null = replanningItinerary,
+    forceNewThread = false,
   ) {
     const trimmedMessage = rawMessage.trim()
     if (!trimmedMessage || isSending || pendingActions.length > 0) {
@@ -932,7 +1173,7 @@ function App() {
     try {
       await streamChat(
         trimmedMessage,
-        threadId || undefined,
+        forceNewThread ? undefined : (threadId || undefined),
         (streamEvent) => {
           setThreadId(streamEvent.thread_id)
 
@@ -944,6 +1185,9 @@ function App() {
             const toolName = streamEvent.tool_name ?? '工具'
             const label = TOOL_LABELS[toolName] ?? toolName
             setActivityText(`${label}已完成，Agent 正在生成回答……`)
+            if (toolName === 'list_itineraries') {
+              void refreshItineraries()
+            }
           } else if (
             streamEvent.type === 'assistant_delta'
             && streamEvent.delta
@@ -963,6 +1207,16 @@ function App() {
             streamEvent.type === 'result_card'
             && streamEvent.card
           ) {
+            if (
+              streamEvent.card.type === 'planning'
+              && replanSource != null
+            ) {
+              setReplanComparison({
+                original: replanSource,
+                current: streamEvent.card,
+              })
+              setReplanningItinerary(null)
+            }
             setMessages((currentMessages) =>
               currentMessages.map((currentMessage) =>
                 currentMessage.id === assistantMessageId
@@ -1060,6 +1314,9 @@ function App() {
         assistantMessage,
       ])
       await refreshConversations()
+      if (decision === 'approve' && result.status === 'completed') {
+        await refreshItineraries()
+      }
     } catch (error) {
       const errorText = error instanceof Error ? error.message : '未知错误'
       setChatError(errorText)
@@ -1151,9 +1408,60 @@ function App() {
               ))}
             </ul>
           </nav>
+
+          <div className="saved-itinerary-panel">
+            <div className="history-heading">
+              <h2 id="saved-itinerary-title">已保存行程</h2>
+              <button
+                type="button"
+                className="button-secondary history-refresh"
+                onClick={() => void refreshItineraries()}
+                disabled={isLoadingItineraries}
+              >
+                刷新
+              </button>
+            </div>
+            {itineraryError && (
+              <p role="alert">行程加载失败：{itineraryError}</p>
+            )}
+            {itineraries.length === 0 && !itineraryError && (
+              <p className="history-empty">还没有已保存的行程。</p>
+            )}
+            <div
+              className="saved-itinerary-list"
+              aria-labelledby="saved-itinerary-title"
+            >
+              {itineraries.map((itinerary) => (
+                <SavedItineraryItem
+                  key={itinerary.itinerary_id}
+                  itinerary={itinerary}
+                  onDelete={(selected) => void handleDeleteItinerary(selected)}
+                  onReplan={(selected) => void handleReplanItinerary(selected)}
+                  deleteDisabled={
+                    deletingItineraryId === itinerary.itinerary_id
+                  }
+                  replanDisabled={
+                    isSending || isDeciding || pendingActions.length > 0
+                  }
+                />
+              ))}
+            </div>
+          </div>
         </aside>
 
         <div className="content-column">
+      {replanningItinerary && (
+        <section className="replan-progress" aria-live="polite">
+          <h2>正在重新规划</h2>
+          <p>
+            正在根据当前天气和路线重新评估“
+            {replanningItinerary.title}”。
+          </p>
+        </section>
+      )}
+      {replanComparison && (
+        <ReplanComparisonCard comparison={replanComparison} />
+      )}
       <section aria-labelledby="backend-status-title">
         <h2 id="backend-status-title">后端连接状态</h2>
 

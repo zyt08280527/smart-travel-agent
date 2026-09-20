@@ -14,6 +14,45 @@ mcp = FastMCP("travel-itinerary")
 
 
 @mcp.tool()
+async def list_itineraries(limit: int = 20) -> str:
+    """查询已经保存到本地存储的行程，按保存时间从新到旧返回。
+
+    这是只读工具，不需要用户审批。适用于“查看已保存行程”“列出我的行程”
+    等请求。
+
+    Args:
+        limit: 返回条数，必须在 1 到 100 之间。
+
+    Returns:
+        包含行程数量和完整行程列表的 JSON 字符串。
+    """
+    if not 1 <= limit <= 100:
+        return json.dumps(
+            {"ok": False, "error": "limit 必须在 1 到 100 之间"},
+            ensure_ascii=False,
+        )
+    try:
+        itineraries = await ItineraryService().list(limit)
+        return json.dumps(
+            {
+                "ok": True,
+                "count": len(itineraries),
+                "itineraries": [
+                    itinerary.model_dump(mode="json")
+                    for itinerary in itineraries
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    except ItineraryServiceError as exc:
+        return json.dumps(
+            {"ok": False, "error": str(exc)},
+            ensure_ascii=False,
+        )
+
+
+@mcp.tool()
 async def save_itinerary(
     title: str,
     origin: str,

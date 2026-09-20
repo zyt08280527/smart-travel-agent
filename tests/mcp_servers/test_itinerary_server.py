@@ -8,6 +8,46 @@ from travel_agent.mcp_servers import itinerary_server
 
 
 @pytest.mark.asyncio
+async def test_list_itineraries_returns_saved_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = SavedItinerary(
+        title="已保存行程",
+        origin="起点",
+        destination="终点",
+        travel_mode="transit",
+        distance_m=1000,
+        duration_s=300,
+        itinerary_id="saved-id",
+        saved_at=datetime(2026, 9, 20, tzinfo=UTC),
+    )
+
+    class FakeItineraryService:
+        async def list(self, limit: int) -> list[SavedItinerary]:
+            assert limit == 5
+            return [record]
+
+    monkeypatch.setattr(
+        itinerary_server,
+        "ItineraryService",
+        FakeItineraryService,
+    )
+
+    payload = json.loads(await itinerary_server.list_itineraries(limit=5))
+
+    assert payload["ok"] is True
+    assert payload["count"] == 1
+    assert payload["itineraries"][0]["itinerary_id"] == "saved-id"
+
+
+@pytest.mark.asyncio
+async def test_list_itineraries_rejects_invalid_limit() -> None:
+    payload = json.loads(await itinerary_server.list_itineraries(limit=0))
+
+    assert payload == {"ok": False, "error": "limit 必须在 1 到 100 之间"}
+
+
+@pytest.mark.asyncio
 async def test_save_itinerary_returns_user_safe_validation_error() -> None:
     result = await itinerary_server.save_itinerary(
         title="",

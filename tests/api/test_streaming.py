@@ -163,6 +163,55 @@ def test_weather_tool_result_becomes_safe_structured_card() -> None:
     assert card.condition == "阴天"
 
 
+def test_itinerary_list_result_becomes_safe_structured_card() -> None:
+    events = normalize_stream_part(
+        {
+            "type": "updates",
+            "data": {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(
+                                {
+                                    "ok": True,
+                                    "count": 1,
+                                    "itineraries": [
+                                        {
+                                            "title": "深圳通勤",
+                                            "origin": "粤海校区",
+                                            "destination": "丽湖校区",
+                                            "travel_mode": "transit",
+                                            "distance_m": 22007,
+                                            "duration_s": 5717,
+                                            "duration_basis": (
+                                                "static_without_live_traffic"
+                                            ),
+                                            "notes": None,
+                                            "itinerary_id": "saved-id",
+                                            "saved_at": "2026-09-20T00:00:00Z",
+                                        }
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            ),
+                            name="list_itineraries",
+                            tool_call_id="call-list-itineraries",
+                        )
+                    ]
+                }
+            },
+        },
+        THREAD_ID,
+    )
+
+    assert [event.type for event in events] == ["tool_completed", "result_card"]
+    card = events[1].card
+    assert card is not None
+    assert card.type == "itinerary_list"
+    assert card.count == 1
+    assert card.itineraries[0].itinerary_id == "saved-id"
+
+
 @pytest.mark.parametrize(
     ("tool_name", "mode"),
     [
@@ -186,6 +235,9 @@ def test_route_tool_result_becomes_safe_structured_card(
                                 '"distance_m":13709.7,'
                                 '"duration_s":9870.9,'
                                 '"steps":[],"step_count":61,'
+                                '"geometry":['
+                                '{"latitude":22.5,"longitude":113.9},'
+                                '{"latitude":22.6,"longitude":114.0}],'
                                 '"attribution":"Routing test attribution"}'
                             ),
                             name=tool_name,
@@ -209,6 +261,8 @@ def test_route_tool_result_becomes_safe_structured_card(
     assert card.distance_m == 13709.7
     assert card.duration_s == 9870.9
     assert card.step_count == 61
+    assert len(card.geometry) == 2
+    assert card.geometry[-1].longitude == 114.0
 
 
 def test_driving_route_card_exposes_traffic_and_cost_summary() -> None:
@@ -510,12 +564,20 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
             "walking_distance_m": 300,
             "cost_yuan": 4,
             "transfer_count": 0,
+            "geometry": [
+                {"latitude": 22.5, "longitude": 113.9},
+                {"latitude": 22.6, "longitude": 114.0},
+            ],
             "legs": [
                 {
                     "mode": "walking",
                     "distance_m": 300,
                     "duration_s": 240,
                     "instruction": "步行至地铁站",
+                    "geometry": [
+                        {"latitude": 22.5, "longitude": 113.9},
+                        {"latitude": 22.51, "longitude": 113.91},
+                    ],
                 },
                 {
                     "mode": "subway",
@@ -577,6 +639,8 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
     assert card.transit_candidates[0].line_names == ["地铁5号线"]
     assert len(card.transit_candidates[0].legs) == 2
     assert card.transit_candidates[0].legs[0].instruction == "步行至地铁站"
+    assert len(card.transit_candidates[0].geometry) == 2
+    assert len(card.transit_candidates[0].legs[0].geometry) == 2
     assert card.transit_candidates[0].legs[1].departure_stop == "大学城站"
     assert card.transit_candidates[0].legs[1].via_stop_count == 2
     assert card.transit_candidates[1].selected is True

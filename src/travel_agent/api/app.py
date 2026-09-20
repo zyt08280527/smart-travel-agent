@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -25,8 +25,15 @@ from travel_agent.domain.conversation import (
     ConversationDetail,
     ConversationSummary,
 )
+from travel_agent.domain.itinerary import SavedItinerary
+from travel_agent.services.itinerary import (
+    ItineraryNotFoundError,
+    ItineraryService,
+    ItineraryServiceError,
+)
 
 RuntimeFactory = Callable[[], AgentRuntime]
+ItineraryServiceFactory = Callable[[], ItineraryService]
 
 def get_runtime(request: Request) -> AgentRuntime:
     """Return the long-lived Agent runtime created during application startup."""
@@ -39,6 +46,7 @@ def get_runtime(request: Request) -> AgentRuntime:
 def create_app(
     runtime_factory: RuntimeFactory = AgentRuntime,
     cors_allowed_origins: Sequence[str] | None = None,
+    itinerary_service_factory: ItineraryServiceFactory = ItineraryService,
 ) -> FastAPI:
     """Create the FastAPI application with a lifespan-managed Agent runtime."""
 
@@ -120,6 +128,25 @@ def create_app(
         limit: int = 50,
     ) -> list[ConversationSummary]:
         return await runtime.list_conversations(limit)
+
+    @app.get("/api/itineraries", response_model=list[SavedItinerary])
+    async def list_itineraries(
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> list[SavedItinerary]:
+        try:
+            return await itinerary_service_factory().list(limit)
+        except ItineraryServiceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.delete("/api/itineraries/{itinerary_id}", status_code=204)
+    async def delete_itinerary(itinerary_id: str) -> Response:
+        try:
+            await itinerary_service_factory().delete(itinerary_id)
+        except ItineraryNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ItineraryServiceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return Response(status_code=204)
 
     @app.get(
         "/api/conversations/{thread_id}",

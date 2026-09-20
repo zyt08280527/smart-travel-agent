@@ -45,13 +45,13 @@ Qwen 能通过 tool calling 自主决定是否调用天气工具，而不是用 
 
 ## 阶段 3：扩展为智能出行 Agent（已完成）
 
-已实现 5 个 MCP Server、8 个工具：
+已实现 5 个 MCP Server、9 个工具：
 
 - 天气查询；
 - 地点搜索和路线起终点解析；
 - 驾车、步行和公共交通规划；
 - 综合天气与三种路线的交通方式比较；
-- 行程保存。
+- 行程保存与已保存行程查询。
 
 已完成：
 
@@ -82,6 +82,7 @@ Qwen 能通过 tool calling 自主决定是否调用天气工具，而不是用 
 - FastAPI NDJSON 流式聊天接口 `/api/chat/stream`；
 - 前端逐步回答、工具调用进度和流式 HITL 审批；
 - 天气、地点、驾车、步行和公共交通结构化结果卡片；
+- 高德路线折线解析、GCJ-02 到 WGS84 转换、轨迹抽样和 Leaflet 地图展示；
 - Vitest + React Testing Library 前端自动化测试；
 - 前端 Oxlint、自动化测试和 production build。
 - 独立的产品会话元数据与可见消息 SQLite 仓储；

@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from travel_agent.domain.itinerary import SavedItinerary
+
 
 class ChatRequest(BaseModel):
     """One user message sent to the Agent."""
@@ -52,6 +54,13 @@ class WeatherResultCard(BaseModel):
     observed_at: str
 
 
+class MapPointCard(BaseModel):
+    """One WGS84 point safe for browser map rendering."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class RouteResultCard(BaseModel):
     """Normalized driving or walking route summary for structured display."""
 
@@ -69,6 +78,7 @@ class RouteResultCard(BaseModel):
     restriction: Literal[0, 1] | None = None
     traffic_status_counts: dict[str, int] = Field(default_factory=dict)
     step_count: int = Field(ge=0)
+    geometry: list[MapPointCard] = Field(default_factory=list)
     attribution: str = Field(min_length=1)
 
 
@@ -137,6 +147,7 @@ class PlanningOptionCard(BaseModel):
     walking_distance_m: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
     latest_departure_at: datetime | None = None
+    geometry: list[MapPointCard] = Field(default_factory=list)
 
 
 class PlanningExcludedOptionCard(BaseModel):
@@ -171,6 +182,7 @@ class PlanningTransitLegCard(BaseModel):
     departure_stop: str | None = None
     arrival_stop: str | None = None
     via_stop_count: int | None = Field(default=None, ge=0)
+    geometry: list[MapPointCard] = Field(default_factory=list)
 
 
 class PlanningTransitCandidateCard(BaseModel):
@@ -184,6 +196,7 @@ class PlanningTransitCandidateCard(BaseModel):
     transfer_count: int = Field(ge=0)
     line_names: list[str] = Field(default_factory=list)
     legs: list[PlanningTransitLegCard] = Field(default_factory=list)
+    geometry: list[MapPointCard] = Field(default_factory=list)
 
 
 class PlanningResultCard(BaseModel):
@@ -209,6 +222,14 @@ class PlanningResultCard(BaseModel):
         default_factory=list
     )
     selected_transit_candidate_index: int | None = Field(default=None, ge=0)
+
+
+class ItineraryListResultCard(BaseModel):
+    """Saved itineraries returned by the read-only itinerary tool."""
+
+    type: Literal["itinerary_list"]
+    count: int = Field(ge=0)
+    itineraries: list[SavedItinerary]
 
 
 class AgentResponse(BaseModel):
@@ -245,6 +266,7 @@ class AgentStreamEvent(BaseModel):
         | TransitResultCard
         | PlaceResultCard
         | PlanningResultCard
+        | ItineraryListResultCard
         | None
     ) = None
     pending_actions: list[PendingAction] = Field(default_factory=list)

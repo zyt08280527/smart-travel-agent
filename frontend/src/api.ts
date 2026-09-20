@@ -47,6 +47,11 @@ export type WeatherResultCard = {
   observed_at: string
 }
 
+export type MapPoint = {
+  latitude: number
+  longitude: number
+}
+
 export type RouteResultCard = {
   type: 'route'
   mode: 'driving' | 'walking'
@@ -59,6 +64,7 @@ export type RouteResultCard = {
   restriction?: 0 | 1 | null
   traffic_status_counts?: Record<string, number>
   step_count: number
+  geometry?: MapPoint[]
   attribution: string
 }
 
@@ -115,6 +121,7 @@ export type PlanningOption = {
   walking_distance_m?: number | null
   transfer_count?: number | null
   latest_departure_at?: string | null
+  geometry?: MapPoint[]
 }
 
 export type PlanningExcludedOption = {
@@ -137,6 +144,7 @@ export type PlanningTransitCandidate = {
   transfer_count: number
   line_names: string[]
   legs?: PlanningTransitLeg[]
+  geometry?: MapPoint[]
 }
 
 export type PlanningTransitLeg = {
@@ -148,6 +156,7 @@ export type PlanningTransitLeg = {
   departure_stop?: string | null
   arrival_stop?: string | null
   via_stop_count?: number | null
+  geometry?: MapPoint[]
 }
 
 export type PlanningResultCard = {
@@ -171,12 +180,32 @@ export type PlanningResultCard = {
   selected_transit_candidate_index?: number | null
 }
 
+export type SavedItinerary = {
+  itinerary_id: string
+  title: string
+  origin: string
+  destination: string
+  travel_mode: 'driving' | 'walking' | 'transit'
+  distance_m: number
+  duration_s: number
+  duration_basis: 'static_without_live_traffic' | 'traffic_aware_estimate'
+  notes?: string | null
+  saved_at: string
+}
+
+export type ItineraryListResultCard = {
+  type: 'itinerary_list'
+  count: number
+  itineraries: SavedItinerary[]
+}
+
 export type ResultCard =
   | WeatherResultCard
   | RouteResultCard
   | TransitResultCard
   | PlaceResultCard
   | PlanningResultCard
+  | ItineraryListResultCard
 
 export type ConversationStatus = 'ready' | 'approval_required' | 'error'
 
@@ -229,6 +258,20 @@ export function getHealth(): Promise<HealthResponse> {
 
 export function getConversations(): Promise<ConversationSummary[]> {
   return requestJson<ConversationSummary[]>('/api/conversations')
+}
+
+export function getItineraries(limit = 20): Promise<SavedItinerary[]> {
+  return requestJson<SavedItinerary[]>(`/api/itineraries?limit=${limit}`)
+}
+
+export async function deleteItinerary(itineraryId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/itineraries/${encodeURIComponent(itineraryId)}`,
+    { method: 'DELETE' },
+  )
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
 }
 
 export function getConversation(threadId: string): Promise<ConversationDetail> {

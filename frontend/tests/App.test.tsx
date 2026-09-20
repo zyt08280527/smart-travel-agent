@@ -7,9 +7,11 @@ import type { AgentStreamEvent } from '../src/api'
 import {
   decideApproval,
   deleteConversation,
+  deleteItinerary,
   getConversation,
   getConversations,
   getHealth,
+  getItineraries,
   streamChat,
 } from '../src/api'
 
@@ -19,15 +21,19 @@ vi.mock('../src/api', async (importOriginal) => {
     ...original,
     decideApproval: vi.fn(),
     deleteConversation: vi.fn(),
+    deleteItinerary: vi.fn(),
     getConversation: vi.fn(),
     getConversations: vi.fn(),
     getHealth: vi.fn(),
+    getItineraries: vi.fn(),
     streamChat: vi.fn(),
   }
 })
 
 const getHealthMock = vi.mocked(getHealth)
+const getItinerariesMock = vi.mocked(getItineraries)
 const deleteConversationMock = vi.mocked(deleteConversation)
+const deleteItineraryMock = vi.mocked(deleteItinerary)
 const getConversationsMock = vi.mocked(getConversations)
 const getConversationMock = vi.mocked(getConversation)
 const streamChatMock = vi.mocked(streamChat)
@@ -54,6 +60,7 @@ describe('App streaming chat', () => {
       tools: ['query_current_weather'],
     })
     getConversationsMock.mockResolvedValue([])
+    getItinerariesMock.mockResolvedValue([])
     streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
       const events: AgentStreamEvent[] = [
         { type: 'run_started', thread_id: 'thread-weather' },
@@ -102,6 +109,147 @@ describe('App streaming chat', () => {
     })
   })
 
+  test('shows saved itineraries from the itinerary API', async () => {
+    getItinerariesMock.mockResolvedValue([
+      {
+        itinerary_id: 'saved-trip',
+        title: '深圳通勤',
+        origin: '深圳大学粤海校区',
+        destination: '深圳大学丽湖校区',
+        travel_mode: 'transit',
+        distance_m: 22007,
+        duration_s: 5717,
+        duration_basis: 'static_without_live_traffic',
+        notes: '地铁优先',
+        saved_at: '2026-09-20T00:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    expect(await screen.findByText('深圳通勤')).toBeInTheDocument()
+    expect(screen.getByText('深圳大学粤海校区 → 深圳大学丽湖校区'))
+      .toBeInTheDocument()
+    expect(screen.getByText('公共交通')).toBeInTheDocument()
+  })
+
+  test('expands and deletes a saved itinerary after confirmation', async () => {
+    const itinerary = {
+      itinerary_id: 'saved-trip',
+      title: '待删除通勤',
+      origin: '粤海校区',
+      destination: '丽湖校区',
+      travel_mode: 'transit' as const,
+      distance_m: 22007,
+      duration_s: 5717,
+      duration_basis: 'static_without_live_traffic' as const,
+      notes: '地铁优先',
+      saved_at: '2026-09-20T00:00:00Z',
+    }
+    getItinerariesMock
+      .mockResolvedValueOnce([itinerary])
+      .mockResolvedValueOnce([])
+    deleteItineraryMock.mockResolvedValue()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /待删除通勤/ }))
+    expect(screen.getByText('备注：地铁优先')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '删除行程' }))
+
+    await waitFor(() => {
+      expect(deleteItineraryMock).toHaveBeenCalledWith('saved-trip')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('待删除通勤')).not.toBeInTheDocument()
+    })
+  })
+
+  test('replans a saved itinerary and compares the current recommendation', async () => {
+    getItinerariesMock.mockResolvedValue([
+      {
+        itinerary_id: 'replan-trip',
+        title: '日常通勤',
+        origin: '粤海校区',
+        destination: '丽湖校区',
+        travel_mode: 'driving',
+        distance_m: 18000,
+        duration_s: 3600,
+        duration_basis: 'traffic_aware_estimate',
+        notes: null,
+        saved_at: '2026-09-20T00:00:00Z',
+      },
+    ])
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      const events: AgentStreamEvent[] = [
+        { type: 'run_started', thread_id: 'replan-thread' },
+        {
+          type: 'result_card',
+          thread_id: 'replan-thread',
+          card: {
+            type: 'planning',
+            origin_name: '粤海校区',
+            destination_name: '丽湖校区',
+            recommended_mode: 'transit',
+            reused_previous_data: false,
+            route_refreshed: false,
+            used_stale_snapshot: false,
+            refresh_failed: false,
+            preferences: {
+              priority: 'balanced',
+              transit_strategy: 'recommended',
+            },
+            ranked_options: [
+              {
+                mode: 'transit',
+                total_score: 91,
+                duration_s: 3000,
+              },
+              {
+                mode: 'driving',
+                total_score: 80,
+                duration_s: 4200,
+              },
+            ],
+            unavailable_options: [],
+          },
+        },
+        {
+          type: 'final',
+          thread_id: 'replan-thread',
+          answer: '当前更推荐公共交通。',
+        },
+        { type: 'done', thread_id: 'replan-thread' },
+      ]
+      for (const event of events) {
+        onEvent(event)
+      }
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /日常通勤/ }))
+    await user.click(
+      screen.getByRole('button', { name: '按当前情况重新规划' }),
+    )
+
+    await waitFor(() => {
+      expect(streamChatMock).toHaveBeenCalledWith(
+        expect.stringContaining('重新规划从“粤海校区”到“丽湖校区”'),
+        undefined,
+        expect.any(Function),
+      )
+    })
+    expect(await screen.findByRole('heading', { name: '重新规划对比' }))
+      .toBeInTheDocument()
+    expect(screen.getByText('推荐方式已从 驾车 变为 公共交通。'))
+      .toBeInTheDocument()
+    expect(screen.getByText('比保存时快 10 分钟')).toBeInTheDocument()
+  })
+
   test('renders traffic-aware driving details from a route card', async () => {
     streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
       const events: AgentStreamEvent[] = [
@@ -121,6 +269,10 @@ describe('App streaming chat', () => {
             restriction: 0,
             traffic_status_counts: { 畅通: 115, 缓行: 6 },
             step_count: 20,
+            geometry: [
+              { latitude: 22.5359, longitude: 113.9315 },
+              { latitude: 22.6010, longitude: 113.9880 },
+            ],
             attribution: '驾车路线数据来源：高德地图 Web服务 API',
           },
         },
@@ -147,6 +299,7 @@ describe('App streaming chat', () => {
     expect(screen.getByText(/查询时路况/)).toHaveTextContent(
       '畅通 115 段 · 缓行 6 段',
     )
+    expect(screen.getByLabelText('驾车路线地图')).toBeInTheDocument()
   })
 
   test('renders every direct public-transport candidate and its legs', async () => {

@@ -20,11 +20,16 @@ LangGraph SQLite checkpoint、独立产品会话历史、多轮对话、行为�
 - 路线快照保鲜：偏好追问优先复用有效快照进行本地重排，快照过期后携带已确认坐标自动刷新路线与天气；刷新失败时明确降级为过期快照并提示风险；
 - 多轮 Agent 对话：使用同一个 `thread_id` 保留上下文；
 - HITL 行程保存：用户批准后才写入 JSONL，拒绝则不产生业务记录；
+- 已保存行程查询：同一份 JSONL 数据可由 Agent 只读查询，也可通过 REST API 在前端列表展示；
+- 行程详情与删除：前端可展开查看时长依据和备注，删除前二次确认并原子更新本地记录；
+- 一键重新规划：从已保存行程发起新的 Agent 会话，重新查询当前天气与三种路线，并对比保存时方案和当前推荐；
+- 真实路线地图：解析高德驾车、步行和公共交通折线，转换为 WGS84 后抽样透传，并在 OpenStreetMap 底图上展示起终点与当前候选轨迹；
 - SQLite checkpoint：FastAPI 重启后仍可恢复对话和待审批工作流；
 - 确定性展示层：补齐数据署名，并拦截部分无依据的能力或实时信息声明；
 - NDJSON 流式聊天：逐步输出回答并展示工具请求与完成状态；
 - 结构化结果卡片：天气、地点、驾车、步行和公共交通摘要；
 - React Web UI：Markdown、审批卡片、结果卡片和服务端历史会话管理；
+- 行程列表 UI：启动时加载最近保存记录，并在保存审批成功后自动刷新；
 - 前端自动化测试：覆盖流解析、最终答案、卡片、HITL、历史加载和删除。
 
 ## 系统架构
@@ -65,6 +70,7 @@ LangChain create_agent + LangGraph
 | `plan_transit_route` | 规划公共交通路线 |
 | `recommend_travel_plan` | 综合天气与三种路线，比较并推荐交通方式 |
 | `save_itinerary` | 保存行程；执行前必须通过 HITL 审批 |
+| `list_itineraries` | 按保存时间倒序查询行程；只读操作，无需审批 |
 
 ## 技术栈
 
@@ -159,6 +165,8 @@ http://localhost:5173
 | `GET` | `/api/conversations` | 获取最近更新的产品会话列表 |
 | `GET` | `/api/conversations/{thread_id}` | 获取可见消息和结构化结果卡片 |
 | `DELETE` | `/api/conversations/{thread_id}` | 删除产品历史和对应 checkpoint |
+| `GET` | `/api/itineraries?limit=20` | 获取最近保存的行程列表 |
+| `DELETE` | `/api/itineraries/{itinerary_id}` | 删除指定的已保存行程 |
 
 聊天响应分为两类：
 
@@ -270,7 +278,8 @@ GitHub Actions 会在每次 push 和 pull request 时自动运行后端 Ruff、P
 - 自动刷新失败时可能使用上一轮过期快照给出临时建议；前端会明确提示，用户不应将降级结果视为实时导航依据；
 - 公共交通费用为 `null` 时只表示未提供，不能推断免费；
 - 公共交通工具不提供实时班次、车辆位置、到站或运营状态；
-- 行程当前只支持本地保存，不支持订票或导出文件；
+- 路线地图使用抽样后的查询时轨迹，不是逐秒更新的导航；底图加载需要访问 OpenStreetMap；
+- 行程支持本地保存、Agent 查询和前端列表展示，不支持订票、跨设备同步或导出文件；
 - 地点和路线回答必须保留对应数据来源署名。
 
 ## 项目结构
@@ -298,7 +307,7 @@ smart-travel-agent/
 
 ## 工程实现要点
 
-- 基于 LangChain/LangGraph 构建能自主选择 8 个 MCP 工具的智能出行 Agent；
+- 基于 LangChain/LangGraph 构建能自主选择 9 个 MCP 工具的智能出行 Agent；
 - 设计 Domain → Service → MCP → Agent 分层，统一多来源 API 数据并用 Pydantic 校验；
 - 使用 HITL 中间件保护行程写入，通过批准/拒绝流程避免模型直接执行有副作用操作；
 - 使用 Async SQLite checkpoint 持久化多轮会话与 interrupt，支持服务重启后恢复审批；

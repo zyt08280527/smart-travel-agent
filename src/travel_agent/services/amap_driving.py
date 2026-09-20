@@ -17,6 +17,11 @@ from travel_agent.services.amap_coordinate import (
     AmapCoordinateServiceError,
 )
 from travel_agent.services.route import RouteNotFoundError, RouteServiceError
+from travel_agent.services.route_geometry import (
+    compact_geometry,
+    merge_geometry,
+    parse_amap_polyline,
+)
 
 AMAP_DRIVING_URL = "https://restapi.amap.com/v5/direction/driving"
 AMAP_DRIVING_ATTRIBUTION = "驾车路线数据来源：高德地图 Web服务 API"
@@ -78,7 +83,7 @@ class AmapDrivingRouteService:
                     "origin": self._format_coordinate(amap_points[0]),
                     "destination": self._format_coordinate(amap_points[1]),
                     "strategy": 32,
-                    "show_fields": "cost,tmcs,navi",
+                    "show_fields": "cost,tmcs,navi,polyline",
                     "output": "json",
                 },
                 headers={"User-Agent": AMAP_USER_AGENT},
@@ -138,6 +143,12 @@ class AmapDrivingRouteService:
             restriction=int(path["restriction"]),
             traffic_segments=traffic_segments,
             steps=steps,
+            geometry=compact_geometry(
+                merge_geometry(
+                    parse_amap_polyline(step.get("polyline"))
+                    for step in path["steps"]
+                )
+            ),
             attribution=AMAP_DRIVING_ATTRIBUTION,
         )
 

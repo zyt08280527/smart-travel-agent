@@ -1,4 +1,4 @@
-"""Start the itinerary server and inspect its save tool without writing data."""
+"""Inspect itinerary MCP read/write tools without creating a record."""
 
 import asyncio
 import json
@@ -9,7 +9,7 @@ from mcp.client.stdio import stdio_client
 
 
 async def run() -> None:
-    """Inspect the save tool and call it with invalid input."""
+    """Read saved trips and verify invalid writes are rejected."""
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "travel_agent.mcp_servers.itinerary_server"],
@@ -27,6 +27,16 @@ async def run() -> None:
             )
             print("input schema:")
             print(json.dumps(save_tool.inputSchema, ensure_ascii=False, indent=2))
+
+            list_result = await session.call_tool(
+                "list_itineraries",
+                arguments={"limit": 1},
+            )
+            print("list result:")
+            for content in list_result.content:
+                text = getattr(content, "text", None)
+                if text is not None:
+                    print(text)
 
             call_result = await session.call_tool(
                 "save_itinerary",

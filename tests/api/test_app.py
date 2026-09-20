@@ -22,6 +22,7 @@ from travel_agent.domain.conversation import (
     ConversationSummary,
     StoredConversationMessage,
 )
+from travel_agent.domain.itinerary import SavedItinerary
 
 THREAD_ID = UUID("12345678-1234-5678-1234-567812345678")
 MISSING_THREAD_ID = UUID("87654321-4321-8765-4321-876543218765")
@@ -154,6 +155,28 @@ class FakeRuntime:
     async def delete_conversation(self, thread_id: UUID) -> None:
         if thread_id == MISSING_THREAD_ID:
             raise ConversationNotFoundError("会话不存在")
+
+
+class FakeItineraryService:
+    deleted_ids: list[str] = []
+
+    async def list(self, limit: int = 20) -> list[SavedItinerary]:
+        assert limit == 5
+        return [
+            SavedItinerary(
+                title="深圳通勤",
+                origin="深圳大学粤海校区",
+                destination="深圳大学丽湖校区",
+                travel_mode="transit",
+                distance_m=22007,
+                duration_s=5717,
+                itinerary_id="saved-itinerary",
+                saved_at=datetime(2026, 9, 20, tzinfo=UTC),
+            )
+        ]
+
+    async def delete(self, itinerary_id: str) -> None:
+        self.deleted_ids.append(itinerary_id)
 
 
 def test_health_uses_lifespan_managed_runtime() -> None:
@@ -292,6 +315,46 @@ def test_conversation_list_and_detail_endpoints() -> None:
     assert conversations.json()[0]["title"] == "深圳天气"
     assert detail.status_code == 200
     assert detail.json()["messages"][0]["content"] == "深圳天气"
+
+
+def test_itinerary_list_endpoint_returns_saved_records() -> None:
+    runtime = FakeRuntime()
+    app = create_app(
+        runtime_factory=lambda: runtime,  # type: ignore[arg-type]
+        itinerary_service_factory=FakeItineraryService,  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/itineraries?limit=5")
+
+    assert response.status_code == 200
+    assert response.json()[0]["itinerary_id"] == "saved-itinerary"
+    assert response.json()[0]["travel_mode"] == "transit"
+
+
+def test_itinerary_list_endpoint_validates_limit() -> None:
+    runtime = FakeRuntime()
+    app = create_app(runtime_factory=lambda: runtime)  # type: ignore[arg-type]
+
+    with TestClient(app) as client:
+        response = client.get("/api/itineraries?limit=0")
+
+    assert response.status_code == 422
+
+
+def test_itinerary_delete_endpoint_removes_saved_record() -> None:
+    runtime = FakeRuntime()
+    FakeItineraryService.deleted_ids = []
+    app = create_app(
+        runtime_factory=lambda: runtime,  # type: ignore[arg-type]
+        itinerary_service_factory=FakeItineraryService,  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        response = client.delete("/api/itineraries/saved-itinerary")
+
+    assert response.status_code == 204
+    assert FakeItineraryService.deleted_ids == ["saved-itinerary"]
 
 
 def test_conversation_detail_returns_404_when_missing() -> None:
