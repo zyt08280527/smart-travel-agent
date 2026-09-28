@@ -176,7 +176,7 @@ def test_save_uses_explicitly_selected_mode_instead_of_system_recommendation() -
     assert corrected["duration_basis"] == "static_without_live_traffic"
 
 
-def test_save_planning_result_requires_explicit_mode_selection() -> None:
+def test_save_planning_result_defaults_to_system_recommendation() -> None:
     payload = build_payload()
     payload["selected_mode"] = None
     route_message = AIMessage(
@@ -208,5 +208,7 @@ def test_save_planning_result_requires_explicit_mode_selection() -> None:
 
     assert result is not None
     response = result["messages"][0]
-    assert response.tool_calls == []
-    assert "先在规划卡片中选择最终出行方式" in response.content
+    corrected = response.tool_calls[0]["args"]
+    assert corrected["travel_mode"] == "driving"
+    assert corrected["distance_m"] == 15_000
+    assert corrected["duration_s"] == 1_800

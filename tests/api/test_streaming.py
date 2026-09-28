@@ -512,6 +512,14 @@ def test_composite_plan_becomes_structured_planning_card() -> None:
         == "2026-09-14T08:15:00+08:00"
     )
     assert [option.mode for option in card.ranked_options] == ["driving", "transit"]
+    assert card.recommended_plan_id == "driving:0"
+    assert card.selected_plan_id == "driving:0"
+    assert [candidate.plan_id for candidate in card.route_candidates] == [
+        "driving:0",
+        "transit:0",
+    ]
+    assert card.route_candidates[0].recommended is True
+    assert card.route_candidates[0].selected is True
     assert [variant.priority for variant in card.recommendation_variants] == [
         "balanced",
         "cheapest",
@@ -611,6 +619,7 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
         },
     ]
     payload["selected_transit_candidate_index"] = 1
+    payload["selected_mode"] = "transit"
 
     events = normalize_stream_part(
         {
@@ -646,6 +655,18 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
     assert card.transit_candidates[1].selected is True
     assert card.transit_candidates[1].duration_s == 1_800
     assert card.transit_candidates[1].line_names == ["M176路", "地铁1号线"]
+    assert [candidate.plan_id for candidate in card.route_candidates] == [
+        "driving:0",
+        "transit:1",
+        "transit:0",
+        "walking:0",
+    ]
+    selected = next(
+        candidate for candidate in card.route_candidates if candidate.selected
+    )
+    assert selected.plan_id == card.selected_plan_id
+    assert selected.title == "M176路 → 地铁1号线"
+    assert [leg.line_name for leg in selected.legs] == ["M176路", "地铁1号线"]
 
 
 def test_expired_snapshot_refresh_is_exposed_on_planning_card() -> None:

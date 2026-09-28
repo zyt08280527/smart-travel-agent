@@ -15,6 +15,7 @@ from travel_agent.api.schemas import (
     PlanningOptionCard,
     PlanningPreferenceCard,
     PlanningResultCard,
+    PlanningRouteCandidateCard,
     PlanningTransitCandidateCard,
     PlanningTransitLegCard,
     PlanningVariantCard,
@@ -318,6 +319,100 @@ def _planning_card_from_payload(
             )
         return cards
 
+    def route_candidate_cards(
+        ranked_cards: list[PlanningOptionCard],
+        transit_cards: list[PlanningTransitCandidateCard],
+    ) -> tuple[list[PlanningRouteCandidateCard], str, str]:
+        recommended_mode = recommendation["recommended_mode"]
+        explicit_selected_mode = payload.get("selected_mode")
+        selected_mode = (
+            explicit_selected_mode
+            if explicit_selected_mode in {"driving", "walking", "transit"}
+            else recommended_mode
+        )
+        transit_index = (
+            selected_transit_candidate_index
+            if isinstance(selected_transit_candidate_index, int)
+            else 0
+        )
+        candidates: list[PlanningRouteCandidateCard] = []
+        recommended_plan_id = ""
+        selected_plan_id = ""
+        mode_titles = {"driving": "驾车路线", "walking": "步行路线"}
+
+        for option in ranked_cards:
+            if option.mode == "transit" and transit_cards:
+                ordered_transit_cards = sorted(
+                    transit_cards,
+                    key=lambda item: item.candidate_index != transit_index,
+                )
+                for transit in ordered_transit_cards:
+                    plan_id = f"transit:{transit.candidate_index}"
+                    is_transit_choice = transit.candidate_index == transit_index
+                    title = (
+                        " → ".join(transit.line_names)
+                        if transit.line_names
+                        else f"公共交通路线 {transit.candidate_index + 1}"
+                    )
+                    candidate = PlanningRouteCandidateCard(
+                        plan_id=plan_id,
+                        mode="transit",
+                        title=title,
+                        selected=selected_mode == "transit" and is_transit_choice,
+                        recommended=(
+                            recommended_mode == "transit" and is_transit_choice
+                        ),
+                        total_score=(option.total_score if is_transit_choice else None),
+                        duration_s=transit.duration_s,
+                        cost_yuan=transit.cost_yuan,
+                        walking_distance_m=transit.walking_distance_m,
+                        transfer_count=transit.transfer_count,
+                        latest_departure_at=(
+                            option.latest_departure_at if is_transit_choice else None
+                        ),
+                        transit_candidate_index=transit.candidate_index,
+                        line_names=transit.line_names,
+                        legs=transit.legs,
+                        geometry=transit.geometry,
+                    )
+                    candidates.append(candidate)
+                    if candidate.recommended:
+                        recommended_plan_id = plan_id
+                    if candidate.selected:
+                        selected_plan_id = plan_id
+                continue
+
+            plan_id = f"{option.mode}:0"
+            candidate = PlanningRouteCandidateCard(
+                plan_id=plan_id,
+                mode=option.mode,
+                title=(
+                    "公共交通路线"
+                    if option.mode == "transit"
+                    else mode_titles[option.mode]
+                ),
+                selected=selected_mode == option.mode,
+                recommended=recommended_mode == option.mode,
+                total_score=option.total_score,
+                duration_s=option.duration_s,
+                cost_yuan=option.cost_yuan,
+                walking_distance_m=option.walking_distance_m,
+                transfer_count=option.transfer_count,
+                latest_departure_at=option.latest_departure_at,
+                geometry=option.geometry,
+            )
+            candidates.append(candidate)
+            if candidate.recommended:
+                recommended_plan_id = plan_id
+            if candidate.selected:
+                selected_plan_id = plan_id
+
+        if not recommended_plan_id and candidates:
+            recommended_plan_id = candidates[0].plan_id
+        if not selected_plan_id:
+            selected_plan_id = recommended_plan_id
+        return candidates, recommended_plan_id, selected_plan_id
+
     excluded_cards: list[PlanningExcludedOptionCard] = []
     try:
         ranked_cards = ranked_cards_from(ranked)
@@ -359,6 +454,9 @@ def _planning_card_from_payload(
             transit_candidates,
             selected_index=selected_transit_candidate_index,
         )
+        route_candidates, recommended_plan_id, selected_plan_id = (
+            route_candidate_cards(ranked_cards, transit_candidate_cards)
+        )
         return PlanningResultCard(
             type="planning",
             origin_name=context["origin_name"],
@@ -382,6 +480,9 @@ def _planning_card_from_payload(
                 else None
             ),
             preferences=PlanningPreferenceCard.model_validate(preferences),
+            recommended_plan_id=recommended_plan_id,
+            selected_plan_id=selected_plan_id,
+            route_candidates=route_candidates,
             ranked_options=ranked_cards,
             recommendation_variants=variant_cards,
             unavailable_options=excluded_cards,

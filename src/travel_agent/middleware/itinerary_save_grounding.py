@@ -96,9 +96,7 @@ def _ground_from_planning(
     grounded["origin"] = result.context.origin_name
     grounded["destination"] = result.context.destination_name
 
-    selected_mode = result.selected_mode
-    if selected_mode is None and not manual_transit_selection:
-        raise ValueError("保存前必须先明确选择出行方式")
+    selected_mode = result.selected_mode or result.recommendation.recommended_mode
     if (
         (selected_mode == "transit" or manual_transit_selection)
         and result.selected_transit_candidate_index is not None
@@ -194,8 +192,8 @@ class ItinerarySaveGroundingMiddleware(AgentMiddleware):
                 "messages": [
                     AIMessage(
                         content=(
-                            "保存前请先在规划卡片中选择最终出行方式"
-                            "（驾车、公共交通或步行）。"
+                            "当前方案数据不完整，无法安全保存。"
+                            "请重新规划后再保存。"
                         )
                     )
                 ]

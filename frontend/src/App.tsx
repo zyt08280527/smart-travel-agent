@@ -16,6 +16,7 @@ import type {
   ConversationSummary,
   PendingAction,
   PlaceResultCard,
+  PlanningRouteCandidate,
   PlanningResultCard,
   PlanningTransitCandidate,
   ResultCard,
@@ -634,12 +635,6 @@ function TransitCandidateView({
   )
 }
 
-const MODE_SELECTION_MESSAGES = {
-  driving: '选择驾车方案',
-  transit: '选择公共交通方案',
-  walking: '选择步行方案',
-}
-
 const TRANSIT_STRATEGY_MESSAGES = {
   recommended: '公共交通综合推荐',
   subway_first: '公共交通改为地铁优先',
@@ -656,6 +651,7 @@ const PRIORITY_MESSAGES = {
 }
 
 type PlanningMode = keyof typeof MODE_LABELS
+type PlanningModeFilter = 'all' | PlanningMode
 type PlanningPriority = keyof typeof PRIORITY_LABELS
 type TransitStrategy = keyof typeof TRANSIT_STRATEGY_LABELS
 
@@ -674,58 +670,109 @@ function formatPlanningDateTime(value: string): string {
   }).format(parsed)
 }
 
+function planningRouteCandidates(
+  card: PlanningResultCard,
+): PlanningRouteCandidate[] {
+  if ((card.route_candidates?.length ?? 0) > 0) {
+    return card.route_candidates ?? []
+  }
+
+  const selectedMode = card.selected_mode ?? card.recommended_mode
+  const selectedTransitIndex = card.selected_transit_candidate_index ?? 0
+  return card.ranked_options.flatMap<PlanningRouteCandidate>((option) => {
+    if (option.mode === 'transit' && (card.transit_candidates?.length ?? 0) > 0) {
+      const orderedTransitCandidates = [...(card.transit_candidates ?? [])]
+        .sort((left, right) => Number(
+          right.candidate_index === selectedTransitIndex,
+        ) - Number(left.candidate_index === selectedTransitIndex))
+      return orderedTransitCandidates.map((candidate) => ({
+        plan_id: `transit:${candidate.candidate_index}`,
+        mode: 'transit' as const,
+        title: (candidate.line_names?.length ?? 0) > 0
+          ? candidate.line_names!.join(' → ')
+          : `公共交通路线 ${candidate.candidate_index + 1}`,
+        selected:
+          selectedMode === 'transit'
+          && candidate.candidate_index === selectedTransitIndex,
+        recommended:
+          card.recommended_mode === 'transit'
+          && candidate.candidate_index === selectedTransitIndex,
+        total_score: candidate.candidate_index === selectedTransitIndex
+          ? option.total_score
+          : null,
+        duration_s: candidate.duration_s,
+        cost_yuan: candidate.cost_yuan,
+        walking_distance_m: candidate.walking_distance_m,
+        transfer_count: candidate.transfer_count,
+        latest_departure_at: candidate.candidate_index === selectedTransitIndex
+          ? option.latest_departure_at
+          : null,
+        transit_candidate_index: candidate.candidate_index,
+        line_names: candidate.line_names,
+        legs: candidate.legs,
+        geometry: candidate.geometry,
+      }))
+    }
+
+    return [{
+      plan_id: `${option.mode}:0`,
+      mode: option.mode,
+      title: option.mode === 'driving'
+        ? '驾车路线'
+        : option.mode === 'walking'
+          ? '步行路线'
+          : '公共交通路线',
+      selected: selectedMode === option.mode,
+      recommended: card.recommended_mode === option.mode,
+      total_score: option.total_score,
+      duration_s: option.duration_s,
+      cost_yuan: option.cost_yuan,
+      walking_distance_m: option.walking_distance_m,
+      transfer_count: option.transfer_count,
+      latest_departure_at: option.latest_departure_at,
+      geometry: option.geometry,
+    }]
+  })
+}
+
+function routeSelectionMessage(candidate: PlanningRouteCandidate): string {
+  if (candidate.mode === 'transit') {
+    return `选择公共交通候选${(candidate.transit_candidate_index ?? 0) + 1}`
+  }
+  return candidate.mode === 'driving' ? '选择驾车方案' : '选择步行方案'
+}
+
 function PlanningCard({
   card,
-  onSelectMode,
+  onSelectPlan,
   onSelectPriority,
   onSelectTransitStrategy,
-  onSelectTransitCandidate,
   onSaveItinerary,
   strategyChangeDisabled,
   saveDisabled,
 }: {
   card: PlanningResultCard
-  onSelectMode?: (mode: PlanningMode) => void
+  onSelectPlan?: (candidate: PlanningRouteCandidate) => void
   onSelectPriority?: (priority: PlanningPriority) => void
   onSelectTransitStrategy?: (strategy: TransitStrategy) => void
-  onSelectTransitCandidate?: (candidateIndex: number) => void
   onSaveItinerary?: () => void
   strategyChangeDisabled?: boolean
   saveDisabled?: boolean
 }) {
   const unavailableOptions = card.unavailable_options ?? []
-  const selectedMode = card.selected_mode ?? null
-  const selectedRoute = card.ranked_options.find(
-    (option) => option.mode === selectedMode,
-  )
-  const serverSelectedTransitCandidateIndex =
-    card.selected_transit_candidate_index
-    ?? card.transit_candidates?.find((candidate) => candidate.selected)
-      ?.candidate_index
-    ?? null
-  const [selectedTransitCandidateIndex, setSelectedTransitCandidateIndex] =
-    useState<number | null>(serverSelectedTransitCandidateIndex)
-
-  useEffect(() => {
-    setSelectedTransitCandidateIndex(serverSelectedTransitCandidateIndex)
-  }, [serverSelectedTransitCandidateIndex])
-
-  const selectedTransitCandidate = card.transit_candidates?.find(
-    (candidate) => candidate.candidate_index === selectedTransitCandidateIndex,
-  )
-  const selectedDuration = selectedMode === 'transit'
-    ? selectedTransitCandidate?.duration_s ?? selectedRoute?.duration_s
-    : selectedRoute?.duration_s
-  const selectedCost = selectedMode === 'transit'
-    ? selectedTransitCandidate?.cost_yuan ?? selectedRoute?.cost_yuan
-    : selectedRoute?.cost_yuan
-  const selectedWalkingDistance = selectedMode === 'transit'
-    ? selectedTransitCandidate?.walking_distance_m
-      ?? selectedRoute?.walking_distance_m
-    : selectedRoute?.walking_distance_m
-  const selectedTransferCount = selectedMode === 'transit'
-    ? selectedTransitCandidate?.transfer_count ?? selectedRoute?.transfer_count
-    : selectedRoute?.transfer_count
+  const candidates = planningRouteCandidates(card)
+  const selectedPlanId = card.selected_plan_id
+    ?? candidates.find((candidate) => candidate.selected)?.plan_id
+    ?? card.recommended_plan_id
+    ?? candidates.find((candidate) => candidate.recommended)?.plan_id
+    ?? candidates[0]?.plan_id
+  const selectedPlan = candidates.find(
+    (candidate) => candidate.plan_id === selectedPlanId,
+  ) ?? candidates[0]
+  const [modeFilter, setModeFilter] = useState<PlanningModeFilter>('all')
+  const visibleCandidates = modeFilter === 'all'
+    ? candidates
+    : candidates.filter((candidate) => candidate.mode === modeFilter)
   const constraintLabels: string[] = []
   if (card.preferences.can_drive === false) {
     constraintLabels.push('不能驾车')
@@ -741,39 +788,42 @@ function PlanningCard({
     constraintLabels.push(`最多换乘 ${card.preferences.max_transfer_count} 次`)
   }
 
-  const transitCandidates = card.transit_candidates ?? []
-  const minimumTransitDuration = transitCandidates.length > 0
-    ? Math.min(...transitCandidates.map((candidate) => candidate.duration_s))
+  const minimumDuration = candidates.length > 0
+    ? Math.min(...candidates.map((candidate) => candidate.duration_s))
     : null
-  const pricedTransitCandidates = transitCandidates.filter(
+  const pricedCandidates = candidates.filter(
     (candidate) => candidate.cost_yuan != null,
   )
-  const minimumTransitCost = pricedTransitCandidates.length > 0
-    ? Math.min(...pricedTransitCandidates.map((candidate) => candidate.cost_yuan!))
+  const minimumCost = pricedCandidates.length > 0
+    ? Math.min(...pricedCandidates.map((candidate) => candidate.cost_yuan!))
     : null
-  const minimumTransitWalking = transitCandidates.length > 0
-    ? Math.min(...transitCandidates.map((candidate) => candidate.walking_distance_m))
+  const walkingCandidates = candidates.filter(
+    (candidate) => candidate.walking_distance_m != null,
+  )
+  const minimumWalking = walkingCandidates.length > 0
+    ? Math.min(...walkingCandidates.map((candidate) => candidate.walking_distance_m!))
     : null
-  const minimumTransitTransfers = transitCandidates.length > 0
-    ? Math.min(...transitCandidates.map((candidate) => candidate.transfer_count))
+  const transferCandidates = candidates.filter(
+    (candidate) => candidate.transfer_count != null,
+  )
+  const minimumTransfers = transferCandidates.length > 0
+    ? Math.min(...transferCandidates.map((candidate) => candidate.transfer_count!))
     : null
-  const selectedTransitGeometry =
-    (selectedTransitCandidate?.geometry?.length ?? 0) >= 2
-      ? selectedTransitCandidate?.geometry ?? []
-      : selectedRoute?.geometry ?? []
 
-  function transitCandidateBadges(candidate: PlanningTransitCandidate): string[] {
+  function candidateBadges(candidate: PlanningRouteCandidate): string[] {
     const badges: string[] = []
-    if (candidate.duration_s === minimumTransitDuration) {
+    if (candidate.duration_s === minimumDuration) {
       badges.push('最快')
     }
-    if (candidate.cost_yuan != null && candidate.cost_yuan === minimumTransitCost) {
+    if (candidate.cost_yuan != null && candidate.cost_yuan === minimumCost) {
       badges.push('最省钱')
     }
-    if (candidate.walking_distance_m === minimumTransitWalking) {
+    if (candidate.walking_distance_m != null
+      && candidate.walking_distance_m === minimumWalking) {
       badges.push('步行最少')
     }
-    if (candidate.transfer_count === minimumTransitTransfers) {
+    if (candidate.transfer_count != null
+      && candidate.transfer_count === minimumTransfers) {
       badges.push('换乘最少')
     }
     return badges
@@ -893,154 +943,149 @@ function PlanningCard({
       </section>
 
       <div className="planning-step-heading">
-        <strong>1. 选择出行方式</strong>
-        <small>推荐仅供参考，请确认最终采用的方式</small>
+        <strong>可执行行程方案</strong>
+        <small>点击任意完整路线即可切换当前方案和地图</small>
       </div>
-      <ol className="planning-ranking planning-mode-selection">
-        {card.ranked_options.map((option, index) => (
-          <li
-            key={option.mode}
-            className={selectedMode === option.mode ? 'selected' : ''}
+      <div className="planning-mode-filters" aria-label="筛选交通方式">
+        {([
+          ['all', '全部方案'],
+          ['driving', '驾车'],
+          ['transit', '公共交通'],
+          ['walking', '步行'],
+        ] as Array<[PlanningModeFilter, string]>).map(([mode, label]) => (
+          <button
+            type="button"
+            key={mode}
+            className={modeFilter === mode ? 'active' : ''}
+            aria-pressed={modeFilter === mode}
+            onClick={() => setModeFilter(mode)}
           >
-            <strong>
-              {index + 1}. {MODE_LABELS[option.mode]}
-              {option.mode === card.recommended_mode && <em>系统推荐</em>}
-              {option.mode === selectedMode && <em>已选择</em>}
-            </strong>
-            <span>
-              {option.total_score.toFixed(1)} 分 · {formatDuration(option.duration_s)}
-            </span>
-            {option.latest_departure_at != null && (
-              <small className="planning-latest-departure">
-                最晚 {formatPlanningDateTime(option.latest_departure_at)} 出发
-              </small>
-            )}
-            {(option.cost_yuan != null
-              || option.walking_distance_m != null
-              || option.transfer_count != null) && (
-              <small>
-                {option.cost_yuan != null
-                  ? `费用 ${option.cost_yuan.toFixed(0)} 元`
-                  : ''}
-                {option.cost_yuan != null
-                  && (option.walking_distance_m != null
-                    || option.transfer_count != null) ? ' · ' : ''}
-                {option.walking_distance_m != null
-                  ? `步行 ${formatDistance(option.walking_distance_m)}`
-                  : ''}
-                {option.walking_distance_m != null
-                  && option.transfer_count != null ? ' · ' : ''}
-                {option.transfer_count != null
-                  ? `换乘 ${option.transfer_count} 次`
-                  : ''}
-              </small>
-            )}
-            <button
-              type="button"
-              aria-label={`选择${MODE_LABELS[option.mode]}方案`}
-              disabled={strategyChangeDisabled || selectedMode === option.mode}
-              onClick={() => onSelectMode?.(option.mode)}
-            >
-              {selectedMode === option.mode ? '已选择' : '选择此方式'}
-            </button>
-          </li>
+            {label}
+          </button>
         ))}
+      </div>
+      <ol className="planning-route-candidates">
+        {visibleCandidates.map((candidate) => {
+          const badges = candidateBadges(candidate)
+          const isSelected = candidate.plan_id === selectedPlan?.plan_id
+          return (
+            <li
+              key={candidate.plan_id}
+              className={isSelected ? 'selected' : ''}
+            >
+              <button
+                type="button"
+                className="planning-route-option"
+                aria-label={`选择行程方案 ${candidate.title}`}
+                aria-pressed={isSelected}
+                disabled={strategyChangeDisabled || isSelected}
+                onClick={() => onSelectPlan?.(candidate)}
+              >
+                <span className="planning-route-title">
+                  <span>
+                    <em>{MODE_LABELS[candidate.mode]}</em>
+                    <strong>{candidate.title}</strong>
+                  </span>
+                  <span className="planning-route-badges">
+                    {candidate.recommended && <em>系统推荐</em>}
+                    {isSelected && <em>当前方案</em>}
+                    {badges.map((badge) => <em key={badge}>{badge}</em>)}
+                  </span>
+                </span>
+                <span className="planning-route-metrics">
+                  <strong>{formatDuration(candidate.duration_s)}</strong>
+                  {candidate.cost_yuan != null && (
+                    <span>费用 {candidate.cost_yuan.toFixed(0)} 元</span>
+                  )}
+                  {candidate.walking_distance_m != null && (
+                    <span>步行 {formatDistance(candidate.walking_distance_m)}</span>
+                  )}
+                  {candidate.transfer_count != null && (
+                    <span>换乘 {candidate.transfer_count} 次</span>
+                  )}
+                </span>
+                {candidate.latest_departure_at != null && (
+                  <small className="planning-latest-departure">
+                    最晚 {formatPlanningDateTime(candidate.latest_departure_at)} 出发
+                  </small>
+                )}
+              </button>
+              {(candidate.legs?.length ?? 0) > 0 && (
+                <details className="planning-transit-details">
+                  <summary>查看完整路线</summary>
+                  <ol aria-label={`${candidate.title}路线步骤`}>
+                    {candidate.legs?.map((leg, legIndex) => (
+                      <li key={`${candidate.plan_id}-${legIndex}`}>
+                        <span className={`transit-leg-mode ${leg.mode}`}>
+                          {TRANSIT_LEG_LABELS[leg.mode]}
+                        </span>
+                        <div>
+                          <strong>
+                            {leg.line_name
+                              ?? (leg.mode === 'walking'
+                                ? leg.instruction || '步行接驳'
+                                : TRANSIT_LEG_LABELS[leg.mode])}
+                          </strong>
+                          {leg.departure_stop && leg.arrival_stop && (
+                            <span>
+                              {leg.departure_stop} → {leg.arrival_stop}
+                              {leg.via_stop_count != null
+                                ? ` · 途经 ${leg.via_stop_count} 站`
+                                : ''}
+                            </span>
+                          )}
+                          <small>
+                            {formatDistance(leg.distance_m)}
+                            {leg.duration_s != null
+                              ? ` · ${formatDuration(leg.duration_s)}`
+                              : ''}
+                          </small>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
+            </li>
+          )
+        })}
       </ol>
-
-      {selectedMode == null && (
-        <p className="planning-selection-hint">
-          请先选择一种出行方式，再细化方案并保存。
-        </p>
+      {visibleCandidates.length === 0 && (
+        <p className="planning-selection-hint">当前筛选下没有可用路线。</p>
       )}
 
-      {selectedMode === 'transit'
-        && (card.transit_candidates?.length ?? 0) > 0 && (
-        <div className="planning-transit-candidates">
-          <div className="planning-transit-heading">
-            <strong>2. 选择具体公共交通路线</strong>
-            <small>点击候选即可切换首选路线，地图会同步更新</small>
+      {selectedPlan && (
+        <div className="planning-selected-route-map">
+          <div className="planning-selected-route-label">
+            <strong>当前方案：{selectedPlan.title}</strong>
+            <span>{MODE_LABELS[selectedPlan.mode]} · 地图随方案切换</span>
           </div>
-          {selectedTransitCandidate && (
-            <div className="planning-selected-route-map">
-              <div className="planning-selected-route-label">
-                <strong>
-                  当前首选：候选 {selectedTransitCandidate.candidate_index + 1}
-                </strong>
-                <span>
-                  {(selectedTransitCandidate.line_names?.length ?? 0) > 0
-                    ? selectedTransitCandidate.line_names?.join(' → ')
-                    : '公共交通路线'}
-                </span>
-              </div>
-              <RouteMap
-                geometry={selectedTransitGeometry}
-                mode="transit"
-                label={`公共交通候选 ${selectedTransitCandidate.candidate_index + 1}`}
-              />
-            </div>
-          )}
-          <ol>
-            {card.transit_candidates?.map((candidate) => {
-              const displayedCandidate = {
-                ...candidate,
-                selected:
-                  candidate.candidate_index === selectedTransitCandidateIndex,
-              }
-              return (
-                <TransitCandidateView
-                  key={candidate.candidate_index}
-                  candidate={displayedCandidate}
-                  badges={transitCandidateBadges(candidate)}
-                  disabled={strategyChangeDisabled}
-                  onSelect={(candidateIndex) => {
-                    setSelectedTransitCandidateIndex(candidateIndex)
-                    onSelectTransitCandidate?.(candidateIndex)
-                  }}
-                />
-              )
-            })}
-          </ol>
+          <RouteMap
+            geometry={selectedPlan.geometry ?? []}
+            mode={selectedPlan.mode}
+            label={selectedPlan.title}
+          />
         </div>
       )}
 
-      {selectedMode != null && selectedMode !== 'transit' && (
-        <RouteMap
-          geometry={selectedRoute?.geometry ?? []}
-          mode={selectedMode}
-          label={`${MODE_LABELS[selectedMode]}已选路线`}
-        />
-      )}
-
-      {selectedMode != null
-        && onSaveItinerary
-        && selectedRoute
-        && selectedDuration != null && (
+      {selectedPlan && onSaveItinerary && (
         <div className="planning-save-summary" aria-label="待保存方案">
           <div className="planning-step-heading">
-            <strong>
-              {selectedMode === 'transit' ? '3' : '2'}. 待保存方案
-            </strong>
+            <strong>保存当前方案</strong>
             <small>审批时会再次展示同一方案</small>
           </div>
-          <h5>{MODE_LABELS[selectedMode]}</h5>
-          {selectedMode === 'transit' && selectedTransitCandidate && (
-            <p>
-              候选 {selectedTransitCandidate.candidate_index + 1}
-              {(selectedTransitCandidate.line_names?.length ?? 0) > 0
-                ? ` · ${selectedTransitCandidate.line_names?.join(' → ')}`
-                : ''}
-            </p>
-          )}
+          <h5>{selectedPlan.title}</h5>
+          <p>{MODE_LABELS[selectedPlan.mode]}</p>
           <p>
-            {formatDuration(selectedDuration)}
-            {selectedCost != null
-              ? ` · 费用 ${selectedCost.toFixed(0)} 元`
+            {formatDuration(selectedPlan.duration_s)}
+            {selectedPlan.cost_yuan != null
+              ? ` · 费用 ${selectedPlan.cost_yuan.toFixed(0)} 元`
               : ''}
-            {selectedWalkingDistance != null
-              ? ` · 步行 ${formatDistance(selectedWalkingDistance)}`
+            {selectedPlan.walking_distance_m != null
+              ? ` · 步行 ${formatDistance(selectedPlan.walking_distance_m)}`
               : ''}
-            {selectedTransferCount != null
-              ? ` · 换乘 ${selectedTransferCount} 次`
+            {selectedPlan.transfer_count != null
+              ? ` · 换乘 ${selectedPlan.transfer_count} 次`
               : ''}
           </p>
           <div className="planning-save-actions">
@@ -1112,7 +1157,7 @@ function PlanningCard({
 
 function ResultCardView({
   card,
-  onSelectMode,
+  onSelectPlan,
   onSelectPriority,
   onSelectTransitStrategy,
   onSelectTransitCandidate,
@@ -1121,7 +1166,7 @@ function ResultCardView({
   saveDisabled,
 }: {
   card: ResultCard
-  onSelectMode?: (mode: PlanningMode) => void
+  onSelectPlan?: (candidate: PlanningRouteCandidate) => void
   onSelectPriority?: (priority: PlanningPriority) => void
   onSelectTransitStrategy?: (strategy: TransitStrategy) => void
   onSelectTransitCandidate?: (candidateIndex: number) => void
@@ -1151,10 +1196,9 @@ function ResultCardView({
     return (
       <PlanningCard
         card={card}
-        onSelectMode={onSelectMode}
+        onSelectPlan={onSelectPlan}
         onSelectPriority={onSelectPriority}
         onSelectTransitStrategy={onSelectTransitStrategy}
-        onSelectTransitCandidate={onSelectTransitCandidate}
         onSaveItinerary={onSaveItinerary}
         strategyChangeDisabled={strategyChangeDisabled}
         saveDisabled={saveDisabled}
@@ -1804,8 +1848,8 @@ function App() {
                       || pendingActions.length > 0
                       || !cardIsLatest
                     }
-                    onSelectMode={(mode) => {
-                      void sendUserMessage(MODE_SELECTION_MESSAGES[mode])
+                    onSelectPlan={(candidate) => {
+                      void sendUserMessage(routeSelectionMessage(candidate))
                     }}
                     onSelectPriority={(priority) => {
                       void sendUserMessage(PRIORITY_MESSAGES[priority])

@@ -199,6 +199,26 @@ class PlanningTransitCandidateCard(BaseModel):
     geometry: list[MapPointCard] = Field(default_factory=list)
 
 
+class PlanningRouteCandidateCard(BaseModel):
+    """One complete, directly selectable itinerary in a planning result."""
+
+    plan_id: str = Field(min_length=1)
+    mode: Literal["driving", "walking", "transit"]
+    title: str = Field(min_length=1)
+    selected: bool = False
+    recommended: bool = False
+    total_score: float | None = Field(default=None, ge=0, le=100)
+    duration_s: float = Field(ge=0)
+    cost_yuan: float | None = Field(default=None, ge=0)
+    walking_distance_m: float | None = Field(default=None, ge=0)
+    transfer_count: int | None = Field(default=None, ge=0)
+    latest_departure_at: datetime | None = None
+    transit_candidate_index: int | None = Field(default=None, ge=0)
+    line_names: list[str] = Field(default_factory=list)
+    legs: list[PlanningTransitLegCard] = Field(default_factory=list)
+    geometry: list[MapPointCard] = Field(default_factory=list)
+
+
 class PlanningResultCard(BaseModel):
     """Structured recommendation summary for initial plans and local re-ranks."""
 
@@ -216,6 +236,9 @@ class PlanningResultCard(BaseModel):
     arrival_by: datetime | None = None
     arrival_buffer_minutes: int | None = Field(default=None, ge=0, le=180)
     preferences: PlanningPreferenceCard
+    recommended_plan_id: str = Field(min_length=1)
+    selected_plan_id: str = Field(min_length=1)
+    route_candidates: list[PlanningRouteCandidateCard] = Field(min_length=1)
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
     recommendation_variants: list[PlanningVariantCard] = Field(default_factory=list)
     unavailable_options: list[PlanningExcludedOptionCard] = Field(default_factory=list)

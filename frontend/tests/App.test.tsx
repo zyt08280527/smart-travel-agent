@@ -604,28 +604,30 @@ describe('App streaming chat', () => {
     expect(screen.getByText('已预留 15 分钟缓冲')).toBeInTheDocument()
     expect(screen.getByText(/最晚.*9\/14.*08:00.*出发/)).toBeInTheDocument()
     expect(screen.getByText('最多步行 1.0 公里')).toBeInTheDocument()
-    expect(screen.getByText('1. 公共交通')).toBeInTheDocument()
-    expect(screen.getByText('2. 选择具体公共交通路线')).toBeInTheDocument()
-    expect(screen.getByText('点击候选即可切换首选路线，地图会同步更新'))
+    expect(screen.getByText('可执行行程方案')).toBeInTheDocument()
+    expect(screen.getByText('点击任意完整路线即可切换当前方案和地图'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '全部方案' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '公共交通' }))
       .toBeInTheDocument()
     expect(screen.getByRole('button', { name: '地铁优先' }))
       .toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('当前首选：候选 2')).toBeInTheDocument()
-    expect(screen.getByLabelText('公共交通候选 2地图')).toBeInTheDocument()
+    expect(screen.getByText('当前方案：M176路 → 地铁1号线'))
+      .toBeInTheDocument()
+    expect(screen.getByLabelText('M176路 → 地铁1号线地图'))
+      .toBeInTheDocument()
     await user.click(screen.getAllByText('查看完整路线').at(-2)!)
     expect(screen.getByText('步行至大学城站')).toBeInTheDocument()
     expect(screen.getByText('大学城站 → 西丽站 · 途经 2 站'))
       .toBeInTheDocument()
     expect(screen.getByText('7.7 公里 · 25 分钟')).toBeInTheDocument()
-    expect(screen.getByText('候选 2')).toBeInTheDocument()
-    expect(screen.getAllByText('M176路 → 地铁1号线')).toHaveLength(2)
-    expect(screen.getByText('当前首选')).toBeInTheDocument()
+    expect(screen.getAllByText('M176路 → 地铁1号线').length).toBeGreaterThan(0)
+    expect(screen.getByText('当前方案')).toBeInTheDocument()
     expect(
       screen.getAllByText('30 分钟 · 费用 7 元 · 步行 900 米 · 换乘 1 次'),
-    ).toHaveLength(2)
-    expect(screen.getByRole('heading', { name: '公共交通' }))
-      .toBeInTheDocument()
-    expect(screen.getByText('候选 2 · M176路 → 地铁1号线'))
+    ).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'M176路 → 地铁1号线' }))
       .toBeInTheDocument()
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
@@ -642,7 +644,7 @@ describe('App streaming chat', () => {
       .toBe('公共交通改为少步行')
 
     const candidateButtons = screen.getAllByRole('button', {
-      name: '选择公共交通候选 1',
+      name: '选择行程方案 地铁5号线',
     })
     const selectableCandidate = candidateButtons.find(
       (button) => !button.hasAttribute('disabled'),
@@ -717,13 +719,10 @@ describe('App streaming chat', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       /路线刷新失败.*9\/14.*10:00.*过期快照.*仅供临时参考/,
     )
-    expect(screen.queryByRole('button', { name: '保存以上行程' }))
-      .not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', {
-      name: '选择公共交通方案',
-    }))
-    expect(streamChatMock.mock.calls.at(-1)?.[0])
-      .toBe('选择公共交通方案')
+    expect(screen.getByRole('button', { name: '保存以上行程' }))
+      .toBeInTheDocument()
+    expect(screen.getByText('当前方案：公共交通路线'))
+      .toBeInTheDocument()
   })
 
   test.each([

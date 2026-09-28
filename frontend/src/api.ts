@@ -159,6 +159,24 @@ export type PlanningTransitLeg = {
   geometry?: MapPoint[]
 }
 
+export type PlanningRouteCandidate = {
+  plan_id: string
+  mode: 'driving' | 'walking' | 'transit'
+  title: string
+  selected: boolean
+  recommended: boolean
+  total_score?: number | null
+  duration_s: number
+  cost_yuan?: number | null
+  walking_distance_m?: number | null
+  transfer_count?: number | null
+  latest_departure_at?: string | null
+  transit_candidate_index?: number | null
+  line_names?: string[]
+  legs?: PlanningTransitLeg[]
+  geometry?: MapPoint[]
+}
+
 export type PlanningResultCard = {
   type: 'planning'
   origin_name: string
@@ -174,6 +192,9 @@ export type PlanningResultCard = {
   arrival_by?: string | null
   arrival_buffer_minutes?: number | null
   preferences: PlanningPreferences
+  recommended_plan_id?: string
+  selected_plan_id?: string
+  route_candidates?: PlanningRouteCandidate[]
   ranked_options: PlanningOption[]
   recommendation_variants?: PlanningVariant[]
   unavailable_options?: PlanningExcludedOption[]
