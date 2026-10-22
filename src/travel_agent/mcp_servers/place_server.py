@@ -51,7 +51,7 @@ async def resolve_route_endpoints(
 
     Returns:
         包含起点候选、终点候选、经纬度和数据来源署名的 JSON 字符串。
-        两次外部搜索会按顺序执行并控制请求间隔。
+        两次高德地点搜索按顺序执行。
     """
     with capture_external_http_requests() as requests:
         try:

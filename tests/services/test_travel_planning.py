@@ -332,7 +332,7 @@ async def test_compare_normalizes_provider_results_before_scoring() -> None:
     assert driving.traffic_status_counts == {"畅通": 1}
     assert driving.cost_yuan is None
     assert "driving 方案缺少费用数据" in result.recommendation.limitations
-    assert len(result.recommendation_variants) == 5
+    assert len(result.recommendation_variants) == 6
     assert {
         variant.priority for variant in result.recommendation_variants
     } == {
@@ -341,6 +341,7 @@ async def test_compare_normalizes_provider_results_before_scoring() -> None:
         "cheapest",
         "least_walking",
         "fewest_transfers",
+        "subway_first",
     }
 
 

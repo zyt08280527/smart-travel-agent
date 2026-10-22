@@ -68,16 +68,16 @@ class AmapPlaceService:
             raise
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             raise AmapPlaceServiceError(
-                "备用地点搜索服务暂时不可用"
+                "高德地点搜索服务暂时不可用"
             ) from exc
 
     @staticmethod
     def _parse_results(payload: Any, query: str) -> PlaceSearchResult:
         if not isinstance(payload, dict) or payload.get("status") != "1":
-            raise AmapPlaceServiceError("备用地点搜索服务暂时不可用")
+            raise AmapPlaceServiceError("高德地点搜索服务暂时不可用")
         pois = payload.get("pois")
         if not isinstance(pois, list):
-            raise AmapPlaceServiceError("备用地点搜索响应格式错误")
+            raise AmapPlaceServiceError("高德地点搜索响应格式错误")
 
         places: list[Place] = []
         for rank, poi in enumerate(pois):

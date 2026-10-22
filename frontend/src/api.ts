@@ -103,6 +103,7 @@ export type PlanningPreferences = {
     | 'cheapest'
     | 'least_walking'
     | 'fewest_transfers'
+    | 'subway_first'
   transit_strategy?:
     | 'recommended'
     | 'subway_first'
@@ -179,6 +180,7 @@ export type PlanningRouteCandidate = {
 
 export type PlanningResultCard = {
   type: 'planning'
+  recommendation_notes?: string[]
   origin_name: string
   destination_name: string
   recommended_mode: 'driving' | 'walking' | 'transit'
@@ -274,8 +276,13 @@ async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export function getHealth(): Promise<HealthResponse> {
-  return requestJson<HealthResponse>('/health')
+export async function getHealth(): Promise<HealthResponse> {
+  const data = await requestJson<HealthResponse>('/health')
+  if (!data || data.status !== 'ok' || !Array.isArray(data.tools)
+    || !data.tools.every((tool) => typeof tool === 'string')) {
+    throw new Error('连接的不是智能出行后端，请检查后端地址和端口。')
+  }
+  return data
 }
 
 export function getConversations(): Promise<ConversationSummary[]> {
@@ -300,6 +307,16 @@ export function getConversation(threadId: string): Promise<ConversationDetail> {
   return requestJson<ConversationDetail>(
     `/api/conversations/${encodeURIComponent(threadId)}`,
   )
+}
+
+export type JourneyVersion = {
+  version_id: string
+  stale: boolean
+  card: PlanningResultCard | TransitResultCard
+}
+
+export function getJourneyVersions(threadId: string): Promise<JourneyVersion[]> {
+  return requestJson(`/api/conversations/${encodeURIComponent(threadId)}/journey-versions`)
 }
 
 export async function deleteConversation(threadId: string): Promise<void> {

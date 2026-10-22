@@ -104,7 +104,7 @@ async def test_recommend_travel_plan_builds_preferences_and_returns_json(
     preferences = fake.received["preferences"]
     assert isinstance(preferences, TravelPreferences)
     assert preferences.priority == "least_walking"
-    assert preferences.transit_strategy == "subway_first"
+    assert preferences.transit_strategy == "least_walking"
     assert preferences.can_drive is False
     assert preferences.max_walking_distance_m == 1000
     assert result.meta == {

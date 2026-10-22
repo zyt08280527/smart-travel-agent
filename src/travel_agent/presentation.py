@@ -416,6 +416,7 @@ def render_planning_payload(payload: dict[str, object]) -> str | None:
     if isinstance(preferences, dict):
         preference_parts: list[str] = []
         priority_labels = {
+            "subway_first": "地铁优先（作用于整体推荐，硬限制优先）",
             "fastest": "优先速度",
             "cheapest": "优先省钱",
             "least_walking": "优先少步行",

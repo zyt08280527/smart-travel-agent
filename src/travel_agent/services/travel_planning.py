@@ -111,6 +111,8 @@ class TravelPlanningService:
             transit_result,
             preferences=preferences,
             weather=weather,
+            arrival_deadline=arrival_deadline,
+            reference_at=reference_at,
         )
         options = [
             self._driving_option(driving_result),
@@ -205,6 +207,7 @@ class TravelPlanningService:
                 else []
             ),
             selected_transit_candidate_index=selected_transit_candidate_index,
+            recommended_transit_candidate_index=selected_transit_candidate_index,
         )
 
     @staticmethod
@@ -297,6 +300,8 @@ class TravelPlanningService:
         *,
         preferences: TravelPreferences,
         weather: WeatherData | None,
+        arrival_deadline: ArrivalDeadline | None = None,
+        reference_at: datetime | None = None,
     ) -> tuple[TravelOption, int | None]:
         if not isinstance(result, TransitPlan):
             return (
@@ -312,4 +317,6 @@ class TravelPlanningService:
             attribution=result.attribution,
             preferences=preferences,
             weather=weather,
+            arrival_deadline=arrival_deadline,
+            reference_at=reference_at,
         )

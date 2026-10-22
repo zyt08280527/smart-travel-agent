@@ -594,12 +594,12 @@ describe('App streaming chat', () => {
     expect(await screen.findByText('本地重新评分')).toBeInTheDocument()
     expect(screen.getByText('驾车 → 公共交通')).toBeInTheDocument()
     expect(screen.getByText('本次出行偏好')).toBeInTheDocument()
-    expect(screen.getByText('同时影响出行方式推荐与具体路线排序'))
+    expect(screen.getByText('先满足出行限制，再推荐具体路线'))
       .toBeInTheDocument()
-    expect(screen.getByText('当前：优先省钱')).toBeInTheDocument()
+    expect(screen.getByText('当前：省钱优先')).toBeInTheDocument()
     expect(screen.queryByText('通用偏好')).not.toBeInTheDocument()
     expect(screen.queryByText('公共交通偏好')).not.toBeInTheDocument()
-    expect(screen.getByText('不能驾车')).toBeInTheDocument()
+    expect(screen.getByText('不能驾车', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText(/目标到达.*9\/14.*09:00/)).toBeInTheDocument()
     expect(screen.getByText('已预留 15 分钟缓冲')).toBeInTheDocument()
     expect(screen.getByText(/最晚.*9\/14.*08:00.*出发/)).toBeInTheDocument()
@@ -611,7 +611,7 @@ describe('App streaming chat', () => {
       .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: '公共交通' }))
       .toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '地铁优先' }))
+    expect(screen.getByRole('button', { name: '省钱优先' }))
       .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('当前方案：M176路 → 地铁1号线'))
       .toBeInTheDocument()
@@ -632,7 +632,7 @@ describe('App streaming chat', () => {
     expect(screen.getByText('驾车：用户明确表示不能驾车')).toBeInTheDocument()
     expect(screen.getByText(/复用上一轮路线与天气快照/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '优先少换乘' }))
+    await user.click(screen.getByRole('button', { name: '少换乘' }))
     expect(streamChatMock.mock.calls.at(-1)?.[0])
       .toBe('调整为优先少换乘')
 
@@ -641,7 +641,7 @@ describe('App streaming chat', () => {
       leastWalkingButtons.find((button) => !button.hasAttribute('disabled'))!,
     )
     expect(streamChatMock.mock.calls.at(-1)?.[0])
-      .toBe('公共交通改为少步行')
+      .toBe('调整为优先少步行')
 
     const candidateButtons = screen.getAllByRole('button', {
       name: '选择行程方案 地铁5号线',
@@ -653,6 +653,17 @@ describe('App streaming chat', () => {
     await user.click(selectableCandidate!)
     expect(streamChatMock.mock.calls.at(-1)?.[0])
       .toBe('选择公共交通候选1')
+
+    expect(screen.queryByText('高级设置')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('设置本次出行偏好').querySelectorAll('button')).toHaveLength(6)
+    await user.click(screen.getByText('出行限制', { selector: 'summary' }))
+    await user.selectOptions(screen.getByLabelText('驾车条件'), 'no')
+    await user.clear(screen.getByLabelText('最多步行（米）'))
+    await user.type(screen.getByLabelText('最多步行（米）'), '800')
+    await user.clear(screen.getByLabelText('最多换乘（次）'))
+    await user.click(screen.getByRole('button', { name: '应用限制' }))
+    expect(streamChatMock.mock.calls.at(-1)?.[0])
+      .toBe('更新出行限制：不能驾车，最多步行800米，取消换乘上限')
 
     const saveButtons = screen.getAllByRole('button', {
       name: '保存以上行程',

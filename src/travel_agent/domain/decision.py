@@ -15,6 +15,7 @@ TravelPriority = Literal[
     "cheapest",
     "least_walking",
     "fewest_transfers",
+    "subway_first",
 ]
 TransitStrategy = Literal[
     "recommended",
@@ -33,6 +34,33 @@ class TravelPreferences(BaseModel):
     can_drive: bool | None = None
     max_walking_distance_m: float | None = Field(default=None, ge=0)
     max_transfer_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def unify_legacy_preferences(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        values = dict(value)
+        priority = values.get("priority", "balanced")
+        legacy = values.get("transit_strategy", "recommended")
+        if priority == "balanced" and legacy in {
+            "subway_first", "fewest_transfers", "least_walking"
+        }:
+            priority = legacy
+        values["priority"] = priority
+        # Provider hints are derived from the single user priority.
+        values["transit_strategy"] = (
+            priority if priority in {"subway_first", "fewest_transfers", "least_walking"}
+            else "recommended"
+        )
+        return values
+
+
+def update_preferences(current: TravelPreferences, updates: dict[str, object]) -> TravelPreferences:
+    values = current.model_dump()
+    if "priority" in updates and "transit_strategy" not in updates:
+        values["transit_strategy"] = "recommended"
+    return TravelPreferences.model_validate({**values, **updates})
 
 
 class JourneyContext(BaseModel):
@@ -85,6 +113,7 @@ class TravelOption(BaseModel):
     tolls_yuan: float | None = Field(default=None, ge=0)
     taxi_cost_yuan: float | None = Field(default=None, ge=0)
     transfer_count: int | None = Field(default=None, ge=0)
+    has_subway: bool = False
     geometry: list[GeoPoint] = Field(default_factory=list)
     latest_departure_at: datetime | None = None
     traffic_status_counts: dict[str, int] = Field(default_factory=dict)
@@ -180,10 +209,14 @@ class TravelComparisonResult(BaseModel):
     )
     transit_candidates: list[TransitRouteOption] = Field(default_factory=list)
     selected_transit_candidate_index: int | None = Field(default=None, ge=0)
+    recommended_transit_candidate_index: int | None = Field(default=None, ge=0)
     selected_mode: TravelMode | None = None
 
     @model_validator(mode="after")
     def selected_transit_candidate_must_exist(self) -> "TravelComparisonResult":
+        recommended = self.recommended_transit_candidate_index
+        if recommended is not None and recommended >= len(self.transit_candidates):
+            raise ValueError("recommended transit candidate must exist")
         index = self.selected_transit_candidate_index
         if index is None:
             if self.transit_candidates:

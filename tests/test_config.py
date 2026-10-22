@@ -12,7 +12,6 @@ def test_settings_validate_values_and_hide_secret() -> None:
     )
 
     assert settings.model_name == "qwen-plus"
-    assert settings.place_proxy_url is None
     assert settings.route_proxy_url is None
     assert settings.checkpoint_storage_path == Path("data/checkpoints.sqlite")
     assert settings.conversation_storage_path == Path(

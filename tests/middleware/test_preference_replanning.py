@@ -169,13 +169,13 @@ def test_parse_supported_preference_updates() -> None:
         "priority": "fewest_transfers"
     }
     assert parse_preference_updates("公共交通改为地铁优先") == {
-        "transit_strategy": "subway_first"
+        "transit_strategy": "subway_first", "priority": "subway_first"
     }
     assert parse_preference_updates("公共交通改为少换乘") == {
-        "transit_strategy": "fewest_transfers"
+        "transit_strategy": "fewest_transfers", "priority": "fewest_transfers"
     }
     assert parse_preference_updates("公共交通改为少步行") == {
-        "transit_strategy": "least_walking"
+        "transit_strategy": "least_walking", "priority": "least_walking"
     }
     assert parse_transit_candidate_selection("选择公共交通候选2") == 1
     assert parse_transit_candidate_selection("切换到候选 1") == 0
@@ -338,7 +338,7 @@ def test_direct_transit_candidate_selection_updates_latest_route_locally() -> No
     assert payload["selected_transit_candidate_index"] == 1
 
 
-def test_expired_transit_candidates_cannot_be_selected() -> None:
+def test_expired_transit_candidates_can_be_viewed_with_stale_warning() -> None:
     result = replanning_middleware(age=timedelta(minutes=5)).before_model(
         {
             "messages": [
@@ -353,8 +353,9 @@ def test_expired_transit_candidates_cannot_be_selected() -> None:
     assert result["jump_to"] == "end"
     response = result["messages"][0]
     assert isinstance(response, AIMessage)
-    assert "候选已经过期" in str(response.content)
-    assert "travel_planning_payload" not in response.additional_kwargs
+    assert "快照已过期" in str(response.content)
+    assert response.additional_kwargs["travel_planning_payload"]["selected_mode"] == "transit"
+    assert response.additional_kwargs["travel_planning_update"]["used_stale_snapshot"] is True
 
 
 def test_walking_limit_follow_up_replans_previous_result() -> None:

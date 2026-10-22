@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 
 from travel_agent.domain.decision import (
     ScoreBreakdown,
@@ -9,6 +10,7 @@ from travel_agent.domain.decision import (
     TravelRecommendation,
     TravelRecommendationVariant,
 )
+from travel_agent.domain.journey_time import ArrivalDeadline
 from travel_agent.domain.weather import ForecastWeather, WeatherData
 
 MetricGetter = Callable[[TravelOption], float | None]
@@ -57,7 +59,28 @@ RECOMMENDATION_VARIANT_PRIORITIES: tuple[TravelPriority, ...] = (
     "cheapest",
     "least_walking",
     "fewest_transfers",
+    "subway_first",
 )
+
+
+def apply_arrival_deadline(
+    options: list[TravelOption], deadline: ArrivalDeadline | None, reference_at: datetime | None,
+) -> list[TravelOption]:
+    if deadline is None or reference_at is None:
+        return options
+    scheduled = []
+    for option in options:
+        if option.status != "available" or option.duration_s is None:
+            scheduled.append(option)
+            continue
+        latest = deadline.latest_departure_at(option.duration_s)
+        updates: dict[str, object] = {"latest_departure_at": latest}
+        if latest < reference_at.astimezone(latest.tzinfo):
+            updates.update(status="unavailable", failure_reason=(
+                f"按照预计耗时和 {deadline.buffer_minutes} 分钟缓冲，最晚出发时间已过"
+            ))
+        scheduled.append(option.model_copy(update=updates))
+    return scheduled
 
 
 class TravelDecisionError(ValueError):
@@ -281,7 +304,9 @@ def recommend_travel_mode(
     metric_scores["weather_fit"] = {
         index: result[0] for index, result in enumerate(weather_results)
     }
-    weights = PRIORITY_WEIGHTS[preferences.priority]
+    weights = PRIORITY_WEIGHTS[
+        "balanced" if preferences.priority == "subway_first" else preferences.priority
+    ]
 
     scored: list[ScoredTravelOption] = []
     for index, option in enumerate(available):
@@ -311,7 +336,16 @@ def recommend_travel_mode(
             )
         )
 
-    ranked = sorted(scored, key=lambda item: item.scores.total, reverse=True)
+    subway_priority = preferences.priority == "subway_first"
+    has_feasible_subway = any(
+        item.option.mode == "transit" and item.option.has_subway for item in scored
+    )
+    ranked = sorted(scored, key=lambda item: (
+        subway_priority and item.option.mode == "transit" and item.option.has_subway,
+        item.scores.total,
+    ), reverse=True)
+    if subway_priority and not has_feasible_subway:
+        limitations.append("没有符合出行限制的地铁方案，已按综合推荐回退到其他可行路线")
     recommended_mode = ranked[0].option.mode
     if weather is None:
         limitations.append("未提供天气数据，本次使用中性天气适配分")
@@ -325,7 +359,9 @@ def recommend_travel_mode(
         unavailable_options=unavailable,
         confidence=_confidence(ranked),
         summary_reasons=[
-            f"在 {preferences.priority} 偏好下，{recommended_mode} 综合得分最高"
+            "地铁优先：优先选用满足出行限制且包含地铁段的路线，综合得分仅作辅助比较"
+            if subway_priority and has_feasible_subway
+            else f"在 {preferences.priority} 偏好下，{recommended_mode} 综合得分最高"
         ],
         limitations=list(dict.fromkeys(limitations)),
     )

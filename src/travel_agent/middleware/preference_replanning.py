@@ -21,6 +21,7 @@ from travel_agent.middleware.recommendation_explanation import (
     latest_planning_payload,
 )
 from travel_agent.presentation import render_planning_payload
+from travel_agent.services.journey_versions import journey_versions
 from travel_agent.services.travel_replanning import (
     build_route_refresh_args,
     is_route_snapshot_fresh,
@@ -222,6 +223,14 @@ def parse_preference_updates(content: str) -> dict[str, object]:
     updates: dict[str, object] = {}
     if _CANNOT_DRIVE_PATTERN.search(content):
         updates["can_drive"] = False
+    elif any(phrase in content for phrase in ("允许驾车", "可以驾车")):
+        updates["can_drive"] = True
+    elif "取消驾车限制" in content:
+        updates["can_drive"] = None
+    if "取消步行上限" in content:
+        updates["max_walking_distance_m"] = None
+    if "取消换乘上限" in content:
+        updates["max_transfer_count"] = None
 
     for pattern in _WALKING_LIMIT_PATTERNS:
         match = pattern.search(content)
@@ -254,11 +263,17 @@ def parse_preference_updates(content: str) -> dict[str, object]:
     ):
         updates["transit_strategy"] = "recommended"
 
+    if "transit_strategy" in updates:
+        updates["priority"] = (
+            "balanced" if updates["transit_strategy"] == "recommended"
+            else updates["transit_strategy"]
+        )
+
     priority_patterns = (
-        ("balanced", ("均衡考虑", "均衡优先", "恢复均衡")),
+        ("balanced", ("均衡考虑", "均衡优先", "恢复均衡", "综合推荐")),
         ("least_walking", ("优先少步行", "尽量少步行", "步行最少", "少走路")),
         ("fewest_transfers", ("优先少换乘", "尽量少换乘", "换乘最少")),
-        ("cheapest", ("优先省钱", "费用优先", "价格优先", "最便宜", "最低费用")),
+        ("cheapest", ("优先省钱", "省钱优先", "费用优先", "价格优先", "最便宜", "最低费用")),
         ("fastest", ("优先速度", "时间优先", "优先最快", "越快越好", "最快")),
     )
     for priority, phrases in priority_patterns:
@@ -395,6 +410,31 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
         content = messages[-1].content
         if not isinstance(content, str):
             return None
+        if content.startswith("采用历史方案 "):
+            version_id = content.removeprefix("采用历史方案 ").strip()
+            version = next((item for item in journey_versions(list(messages[:-1]))
+                            if item["version_id"] == version_id), None)
+            if version is None:
+                return {"jump_to": "end", "messages": [AIMessage(
+                    content="该历史方案不存在于当前会话，未修改当前行程。",
+                )]}
+            payload = version["payload"]
+            key = ("travel_planning_payload" if version["kind"] == "planning"
+                   else "transit_route_payload")
+            stale = True
+            if version["kind"] == "planning":
+                context = JourneyContext.model_validate(payload["context"])
+                stale = not is_route_snapshot_fresh(context, reference_at=self._clock())
+            return {"jump_to": "end", "messages": [AIMessage(
+                content="已采用历史方案，当前选择、地图及待保存内容已同步。"
+                        "本次未重新查询外部服务；出发前请刷新确认。",
+                additional_kwargs={
+                    key: payload,
+                    "travel_planning_update": {
+                        "reused_previous_data": True, "used_stale_snapshot": stale,
+                    },
+                },
+            )]}
         transit_candidate_index = parse_transit_candidate_selection(content)
         if transit_candidate_index is not None:
             route_choice = _latest_route_choice_payload(list(messages[:-1]))
@@ -426,21 +466,10 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
                 return None
             try:
                 context = JourneyContext.model_validate(context_value)
-                if not is_route_snapshot_fresh(
+                snapshot_is_fresh = is_route_snapshot_fresh(
                     context,
                     reference_at=self._clock(),
-                ):
-                    return {
-                        "jump_to": "end",
-                        "messages": [
-                            AIMessage(
-                                content=(
-                                    "这组公共交通候选已经过期，请先选择公共交通"
-                                    "策略刷新路线，再选择具体候选。"
-                                )
-                            )
-                        ],
-                    }
+                )
                 payload = replan_from_payload(
                     previous_payload,
                     preference_updates={},
@@ -468,13 +497,18 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
                         content=(
                             f"已选择公共交通候选 {transit_candidate_index + 1}，"
                             "并基于该路线更新出行比较；本轮没有重新请求外部服务。"
-                            f"\n\n{rendered}"
+                            + (
+                                "该路线快照已过期，时长与费用需刷新后确认。"
+                                if not snapshot_is_fresh else ""
+                            )
+                            + f"\n\n{rendered}"
                         ),
                         additional_kwargs={
                             "travel_planning_payload": payload,
                             "travel_planning_update": {
                                 "reused_previous_data": True,
                                 "manual_transit_selection": True,
+                                **({"used_stale_snapshot": True} if not snapshot_is_fresh else {}),
                                 "previous_recommended_mode": previous_mode,
                             },
                         },

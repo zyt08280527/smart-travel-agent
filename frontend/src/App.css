@@ -1,9 +1,14 @@
+#root {
+  width: 100%;
+  max-width: 1600px;
+}
+
 main {
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding: 48px;
+  padding: 28px;
   box-sizing: border-box;
   text-align: left;
 }
@@ -28,7 +33,7 @@ header h1 {
 
 .app-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -41,12 +46,62 @@ header h1 {
 }
 
 .history-panel {
-  position: sticky;
-  top: 24px;
+  position: static;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   max-height: calc(100vh - 48px);
   overflow: hidden;
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.9fr) minmax(450px, 1.1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.conversation-pane, .journey-workspace { min-width: 0; }
+.journey-workspace {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  isolation: isolate;
+}
+.journey-workspace:focus { outline: 2px solid var(--accent-border); outline-offset: 3px; }
+.journey-workspace-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.journey-workspace-heading h2 { margin: 4px 0 0; }
+.journey-workspace-heading > span { font-size: 12px; color: var(--text); }
+.journey-workspace > .result-card { width: 100%; margin-top: 18px; }
+.journey-empty { padding: 55px 18px; text-align: center; color: var(--text); }
+.journey-empty h3 { color: var(--text-h); }
+.journey-update-hint { padding: 12px; background: var(--accent-bg); border-radius: 8px; font-size: 13px; }
+.journey-link { padding: 6px 0; background: transparent; color: var(--accent); font-size: 13px; }
+.workspace-tabs, .workspace-back-to-chat { display: none; }
+.connection-status { padding: 14px 20px; font-size: 13px; }
+.connection-status h2 { display: inline; margin-right: 16px; font-size: 14px; }
+.connection-status p { display: inline; }
+.connection-status details { margin-top: 8px; }
+.connection-status summary { cursor: pointer; }
+.connection-status ul { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-left: 18px; }
+.workspace-layout .chat-section { display: flex; flex-direction: column; max-height: calc(100dvh - 36px); box-sizing: border-box; }
+.workspace-layout .message-list { overflow-y: auto; min-height: 180px; max-height: 55dvh; }
+.workspace-layout .chat-composer { position: static; flex-shrink: 0; z-index: 1; }
+.workspace-layout .chat-composer-row { grid-template-columns: minmax(0, 1fr); }
+.workspace-layout .chat-composer-row button { justify-self: end; }
+
+@media (max-width: 960px) {
+  .workspace-tabs { display: flex; gap: 8px; }
+  .workspace-tabs button { flex: 1; background: var(--social-bg); color: var(--text); border: 1px solid var(--border); }
+  .workspace-tabs button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); color: var(--text-h); }
+  .workspace-layout { grid-template-columns: minmax(0, 1fr); }
+  .workspace-layout[data-active-panel="chat"] > .journey-workspace,
+  .workspace-layout[data-active-panel="journey"] > .conversation-pane { display: none; }
+  .journey-workspace { position: static; max-height: none; overflow: visible; }
+  .workspace-back-to-chat { display: block; margin-top: 18px; }
+  .workspace-layout .chat-section { max-height: none; }
 }
 
 .sidebar-section {
@@ -565,6 +620,21 @@ button:disabled {
   z-index: 0;
   width: 100%;
   height: 280px;
+}
+
+.route-map-status {
+  position: absolute;
+  inset: 0 0 auto;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #f8fafc;
+  color: #475569;
+  z-index: 1;
 }
 
 .route-map-caption {
@@ -1359,6 +1429,7 @@ button:disabled {
 
   .history-panel {
     position: static;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .message {
@@ -1398,3 +1469,25 @@ button:disabled {
     width: 100%;
   }
 }
+.trip-constraints {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #ddd6e8;
+  border-radius: 12px;
+  background: #fff;
+}
+.trip-constraints summary { cursor: pointer; font-weight: 600; }
+.trip-constraints form { display: grid; gap: 12px; }
+.trip-constraints label { display: grid; gap: 5px; }
+.trip-constraints input, .trip-constraints select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #d8d4df;
+  border-radius: 8px;
+  background: #fff;
+  color: #24212b;
+  font: inherit;
+}
+.trip-constraints small { color: #666; }

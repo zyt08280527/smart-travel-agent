@@ -4,9 +4,17 @@ import {
   deleteConversation,
   getConversation,
   getConversations,
+  getHealth,
   streamChat,
 } from '../src/api'
 import type { AgentStreamEvent } from '../src/api'
+
+test('拒绝其他服务的健康响应，避免工具列表缺失导致页面崩溃', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+    JSON.stringify({ status: 'ok', collection_name: 'knowledge_chunks', row_count: 85 }),
+  )))
+  await expect(getHealth()).rejects.toThrow('连接的不是智能出行后端')
+})
 
 function chunkedResponse(text: string, cutPoints: number[]): Response {
   const bytes = new TextEncoder().encode(text)

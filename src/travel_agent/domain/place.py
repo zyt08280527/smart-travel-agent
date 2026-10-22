@@ -20,6 +20,7 @@ class PlaceSearchResult(BaseModel):
     query: str = Field(min_length=1)
     places: list[Place] = Field(default_factory=list)
     attribution: str = Field(min_length=1)
+    # Keep the old default so persisted v1 cards without a provider still load.
     provider: Literal["openstreetmap", "amap"] = "openstreetmap"
 
 

@@ -158,6 +158,13 @@ def create_app(
     ) -> ConversationDetail:
         return await runtime.get_conversation(thread_id)
 
+    @app.get("/api/conversations/{thread_id}/journey-versions")
+    async def list_journey_versions(
+        thread_id: UUID,
+        runtime: Annotated[AgentRuntime, Depends(get_runtime)],
+    ) -> list[dict]:
+        return await runtime.list_journey_versions(thread_id)
+
     @app.delete(
         "/api/conversations/{thread_id}",
         status_code=204,

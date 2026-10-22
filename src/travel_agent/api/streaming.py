@@ -336,6 +336,9 @@ def _planning_card_from_payload(
             else 0
         )
         candidates: list[PlanningRouteCandidateCard] = []
+        recommended_transit_index = payload.get("recommended_transit_candidate_index")
+        if not isinstance(recommended_transit_index, int):
+            recommended_transit_index = transit_index
         recommended_plan_id = ""
         selected_plan_id = ""
         mode_titles = {"driving": "驾车路线", "walking": "步行路线"}
@@ -349,6 +352,7 @@ def _planning_card_from_payload(
                 for transit in ordered_transit_cards:
                     plan_id = f"transit:{transit.candidate_index}"
                     is_transit_choice = transit.candidate_index == transit_index
+                    is_transit_recommendation = transit.candidate_index == recommended_transit_index
                     title = (
                         " → ".join(transit.line_names)
                         if transit.line_names
@@ -360,15 +364,15 @@ def _planning_card_from_payload(
                         title=title,
                         selected=selected_mode == "transit" and is_transit_choice,
                         recommended=(
-                            recommended_mode == "transit" and is_transit_choice
+                            recommended_mode == "transit" and is_transit_recommendation
                         ),
-                        total_score=(option.total_score if is_transit_choice else None),
+                        total_score=(option.total_score if is_transit_recommendation else None),
                         duration_s=transit.duration_s,
                         cost_yuan=transit.cost_yuan,
                         walking_distance_m=transit.walking_distance_m,
                         transfer_count=transit.transfer_count,
                         latest_departure_at=(
-                            option.latest_departure_at if is_transit_choice else None
+                            option.latest_departure_at if is_transit_recommendation else None
                         ),
                         transit_candidate_index=transit.candidate_index,
                         line_names=transit.line_names,
@@ -480,6 +484,10 @@ def _planning_card_from_payload(
                 else None
             ),
             preferences=PlanningPreferenceCard.model_validate(preferences),
+            recommendation_notes=[
+                note for note in recommendation.get("limitations", [])
+                if isinstance(note, str) and "地铁" in note
+            ],
             recommended_plan_id=recommended_plan_id,
             selected_plan_id=selected_plan_id,
             route_candidates=route_candidates,

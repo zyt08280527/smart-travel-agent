@@ -114,7 +114,7 @@ def test_recommendation_variants_reuse_constraints_for_every_priority() -> None:
     assert [variant.priority for variant in variants] == list(
         RECOMMENDATION_VARIANT_PRIORITIES
     )
-    assert len(variants) == 5
+    assert len(variants) == 6
     assert all(
         scored.option.mode != "driving"
         for variant in variants

@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     dashscope_base_url: HttpUrl
     amap_api_key: SecretStr
     model_name: str = Field(default="qwen-plus", min_length=1)
-    place_proxy_url: HttpUrl | None = None
     route_proxy_url: HttpUrl | None = None
     itinerary_storage_path: Path = Path("data/itineraries.jsonl")
     checkpoint_storage_path: Path = Path("data/checkpoints.sqlite")

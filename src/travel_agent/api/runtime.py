@@ -1,6 +1,7 @@
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -25,8 +26,11 @@ from travel_agent.domain.conversation import (
     ConversationDetail,
     ConversationSummary,
 )
+from travel_agent.domain.decision import JourneyContext
 from travel_agent.presentation import render_user_response
 from travel_agent.services.conversation import ConversationRepository
+from travel_agent.services.journey_versions import journey_versions
+from travel_agent.services.travel_replanning import is_route_snapshot_fresh
 
 AgentSession = AbstractAsyncContextManager[
     tuple[CompiledStateGraph, list[BaseTool]]
@@ -87,6 +91,29 @@ class AgentRuntime:
         if conversation is None:
             raise ConversationNotFoundError("会话不存在")
         return conversation
+
+    async def list_journey_versions(self, thread_id: UUID) -> list[dict[str, Any]]:
+        """Read trusted snapshots; viewing never changes the graph's current choice."""
+        await self.get_conversation(thread_id)
+        state = await self._require_agent().aget_state(self._config(thread_id))
+        result = []
+        for version in journey_versions(list(state.values.get("messages", []))):
+            payload = version["payload"]
+            stale = True
+            if version["kind"] == "planning":
+                stale = not is_route_snapshot_fresh(
+                    JourneyContext.model_validate(payload["context"]),
+                    reference_at=datetime.now(UTC),
+                )
+            key = ("travel_planning_payload" if version["kind"] == "planning"
+                   else "transit_route_payload")
+            card = result_card_from_ai_message(AIMessage(content="", additional_kwargs={
+                key: payload, "travel_planning_update": {"used_stale_snapshot": stale},
+            }))
+            if card is not None:
+                result.append({"version_id": version["version_id"],
+                               "stale": stale, "card": card.model_dump(mode="json")})
+        return result
 
     async def delete_conversation(self, thread_id: UUID) -> None:
         """Delete both LangGraph execution state and visible history."""

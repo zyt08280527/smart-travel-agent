@@ -7,7 +7,7 @@ from travel_agent.domain.decision import (
     TravelComparisonResult,
     TravelMode,
     TravelOption,
-    TravelPreferences,
+    update_preferences,
 )
 from travel_agent.domain.transit import TransitOption as TransitRouteOption
 from travel_agent.services.transit_selection import (
@@ -15,6 +15,7 @@ from travel_agent.services.transit_selection import (
     select_transit_candidate,
 )
 from travel_agent.services.travel_decision import (
+    apply_arrival_deadline,
     recommend_travel_mode,
     recommend_travel_variants,
 )
@@ -45,12 +46,7 @@ def build_route_refresh_args(
     if context.origin is None or context.destination is None:
         raise ValueError("上一轮规划结果缺少可复用的起终点坐标")
 
-    preferences = TravelPreferences.model_validate(
-        {
-            **context.preferences.model_dump(),
-            **preference_updates,
-        }
-    )
+    preferences = update_preferences(context.preferences, preference_updates)
     return {
         "city": context.city,
         "origin_name": context.origin_name,
@@ -119,12 +115,7 @@ def replan_from_payload(
     if not options:
         raise ValueError("上一轮规划结果没有可复用的路线候选")
 
-    preferences = TravelPreferences.model_validate(
-        {
-            **context.preferences.model_dump(),
-            **preference_updates,
-        }
-    )
+    preferences = update_preferences(context.preferences, preference_updates)
     raw_transit_candidates = payload.get("transit_candidates", [])
     transit_candidates = (
         [
@@ -140,6 +131,7 @@ def replan_from_payload(
     selected_transit_candidate_index = payload.get(
         "selected_transit_candidate_index"
     )
+    recommended_transit_candidate_index = None
     if transit_candidates:
         previous_transit = next(
             (option for option in options if option.mode == "transit"),
@@ -150,6 +142,11 @@ def replan_from_payload(
         ):
             raise ValueError("上一轮规划结果缺少公共交通路线信息")
         if previous_transit is not None and previous_transit.attribution:
+            preferred_transit, recommended_transit_candidate_index = select_transit_candidate(
+                transit_candidates, attribution=previous_transit.attribution,
+                preferences=preferences, weather=context.weather,
+                arrival_deadline=context.arrival_deadline, reference_at=context.route_snapshot_at,
+            )
             if transit_candidate_index is not None:
                 if not 0 <= transit_candidate_index < len(transit_candidates):
                     raise ValueError("指定的公共交通候选不存在")
@@ -169,18 +166,16 @@ def replan_from_payload(
                     candidate,
                     attribution=previous_transit.attribution,
                 )
+                selected_transit = apply_arrival_deadline(
+                    [selected_transit], context.arrival_deadline, context.route_snapshot_at,
+                )[0]
+                if selected_transit.status != "available":
+                    raise ValueError("该公共交通候选无法满足到达时间限制")
                 selected_transit_candidate_index = transit_candidate_index
             else:
-                selected_transit, selected_transit_candidate_index = (
-                    select_transit_candidate(
-                        transit_candidates,
-                        attribution=previous_transit.attribution,
-                        preferences=preferences,
-                        weather=context.weather,
-                    )
-                )
+                selected_transit_candidate_index = recommended_transit_candidate_index
             options = [
-                selected_transit if option.mode == "transit" else option
+                preferred_transit if option.mode == "transit" else option
                 for option in options
             ]
 
@@ -199,7 +194,9 @@ def replan_from_payload(
         reusable_limitations = [
             item
             for item in old_limitations
-            if isinstance(item, str) and "方案未参与评分：" not in item
+            if isinstance(item, str)
+            and "方案未参与评分：" not in item
+            and "没有符合出行限制的地铁方案" not in item
         ]
         recommendation = recommendation.model_copy(
             update={
@@ -231,6 +228,7 @@ def replan_from_payload(
         recommendation_variants=recommendation_variants,
         transit_candidates=transit_candidates,
         selected_transit_candidate_index=selected_transit_candidate_index,
+        recommended_transit_candidate_index=recommended_transit_candidate_index,
         selected_mode=effective_selected_mode,
     )
     return result.model_dump(mode="json")

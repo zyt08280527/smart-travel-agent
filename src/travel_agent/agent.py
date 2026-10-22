@@ -66,6 +66,10 @@ SYSTEM_PROMPT = """你是智能出行助手。
 必须先解析并确认起终点坐标，再调用综合出行推荐工具；不得自行挑选一种交通方式。
 调用综合出行推荐工具时，只传递用户明确表达的驾车能力、步行上限、换乘上限和偏好；
 没有表达的可选约束必须使用默认值或 null，不得猜测。
+出行偏好只使用一项 priority：balanced、fastest、cheapest、least_walking、
+fewest_transfers、subway_first。
+“地铁优先”应传 priority=subway_first，表示整个出行推荐优先选择满足硬限制的地铁路线，
+不是仅在公交内部选择；transit_strategy 为旧版兼容字段，不得另设一层冲突偏好。
 用户表达了出发时间时，必须把原始时间表达完整传入 departure_time_text；
 用户表达“几点前到达”“不迟于几点到”等到达目标时，必须把原始表达完整传入
 arrival_time_text，并将 departure_time_text 设为 null。不得同时传递出发和到达时间，

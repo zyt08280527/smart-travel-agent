@@ -125,6 +125,7 @@ class PlanningPreferenceCard(BaseModel):
         "cheapest",
         "least_walking",
         "fewest_transfers",
+        "subway_first",
     ]
     transit_strategy: Literal[
         "recommended",
@@ -166,6 +167,7 @@ class PlanningVariantCard(BaseModel):
         "cheapest",
         "least_walking",
         "fewest_transfers",
+        "subway_first",
     ]
     recommended_mode: Literal["driving", "walking", "transit"]
     ranked_options: list[PlanningOptionCard] = Field(min_length=1)
@@ -223,6 +225,7 @@ class PlanningResultCard(BaseModel):
     """Structured recommendation summary for initial plans and local re-ranks."""
 
     type: Literal["planning"]
+    recommendation_notes: list[str] = Field(default_factory=list)
     origin_name: str = Field(min_length=1)
     destination_name: str = Field(min_length=1)
     recommended_mode: Literal["driving", "walking", "transit"]

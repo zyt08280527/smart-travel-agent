@@ -53,6 +53,7 @@ async def recommend_travel_plan(
         "cheapest",
         "least_walking",
         "fewest_transfers",
+        "subway_first",
     ] = "balanced",
     transit_strategy: Literal[
         "recommended",
@@ -85,9 +86,9 @@ async def recommend_travel_plan(
         origin_longitude: 起点WGS84经度。
         destination_latitude: 终点WGS84纬度。
         destination_longitude: 终点WGS84经度。
-        priority: 用户偏好，依次支持综合、最快、最便宜、少步行和少换乘。
-        transit_strategy: 公共交通内部选线策略，支持综合推荐、地铁优先、
-            少换乘和少步行。
+        priority: 单一整体出行偏好，支持综合、最快、最便宜、少步行、少换乘、
+            地铁优先(subway_first)。地铁优先影响整体推荐，硬限制仍优先。
+        transit_strategy: 旧调用兼容字段；新调用使用priority，本字段留默认值。
         can_drive: 用户能否驾车；未知时传null。
         max_walking_distance_m: 用户可接受的最大步行距离；未说明时传null。
         max_transfer_count: 用户可接受的最大换乘次数；未说明时传null。
