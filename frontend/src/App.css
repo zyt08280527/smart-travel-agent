@@ -1491,3 +1491,11 @@ button:disabled {
   font: inherit;
 }
 .trip-constraints small { color: #666; }
+.travel-modal { width: min(860px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid #d8d4df; border-radius: 18px; background: #fff; color: #24212b; overflow: auto; box-sizing: border-box; }
+.travel-modal::backdrop { background: rgb(26 20 35 / 45%); }
+.modal-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; position: sticky; top: -20px; background: #fff; z-index: 2; padding: 12px 0; }
+.travel-modal .multi-workspace { padding: 0; }
+.travel-modal .multi-layout { grid-template-columns: minmax(0, 1fr); }
+.discovery-form label { display: grid; gap: 6px; margin: 12px 0; }
+.discovery-form input, .discovery-form select { width: 100%; box-sizing: border-box; padding: 9px; font: inherit; }
+.discovery-form input[type="checkbox"] { width: auto; }

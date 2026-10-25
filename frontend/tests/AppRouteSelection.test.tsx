@@ -16,6 +16,71 @@ vi.mock('../src/RouteMap', () => ({
   ),
 }))
 
+test.each(['structured', 'legacy'] as const)('各交通方式与具体公交路线点选不重排，地图、推荐与保存状态同步：%s', async (format) => {
+  vi.mocked(getHealth).mockResolvedValue({ status: 'ok', tools: [] })
+  vi.mocked(getConversations).mockResolvedValue([])
+  vi.mocked(getItineraries).mockResolvedValue([])
+  const candidates: NonNullable<PlanningResultCard['route_candidates']> = [
+    { plan_id: 'transit:0', mode: 'transit', title: '地铁甲线', recommended: true, selected: true, duration_s: 1200, transit_candidate_index: 0, walking_distance_m: 100, transfer_count: 0, geometry: [{ latitude: 22, longitude: 114 }] },
+    { plan_id: 'transit:1', mode: 'transit', title: '公交乙线', recommended: false, selected: false, duration_s: 1800, transit_candidate_index: 1, walking_distance_m: 200, transfer_count: 1, geometry: [{ latitude: 22.1, longitude: 114.1 }] },
+    { plan_id: 'walking:0', mode: 'walking', title: '步行路线', recommended: false, selected: false, duration_s: 5000, geometry: [{ latitude: 22.2, longitude: 114.2 }] },
+    { plan_id: 'driving:0', mode: 'driving', title: '驾车路线', recommended: false, selected: false, duration_s: 1000, geometry: [{ latitude: 22.3, longitude: 114.3 }] },
+  ]
+  vi.mocked(streamChat).mockImplementation(async (message, _thread, emit) => {
+    if (message === '保存当前选择的行程') {
+      emit({ type: 'final', thread_id: 'stable-order', answer: '等待用户确认保存' })
+      return
+    }
+    const selected = message === '选择公共交通候选2' ? candidates[1]
+      : message === '选择步行方案' ? candidates[2]
+      : message === '选择驾车方案' ? candidates[3] : candidates[0]
+    emit({ type: 'run_started', thread_id: 'stable-order' })
+    emit({ type: 'result_card', thread_id: 'stable-order', card: {
+      type: 'planning', origin_name: '起点', destination_name: '终点', recommended_mode: 'transit',
+      selected_mode: selected.mode, selected_plan_id: selected.plan_id, recommended_plan_id: 'transit:0',
+      selected_transit_candidate_index: selected.transit_candidate_index ?? 1,
+      preferences: { priority: 'balanced' }, reused_previous_data: true, route_refreshed: false,
+      used_stale_snapshot: false, refresh_failed: false,
+      ranked_options: [candidates[0], candidates[2], candidates[3]].map((candidate) => ({ ...candidate, total_score: 80 })),
+      transit_candidates: candidates.slice(0, 2).map((candidate, index) => ({ ...candidate, candidate_index: index, selected: candidate.plan_id === selected.plan_id, walking_distance_m: candidate.walking_distance_m!, transfer_count: candidate.transfer_count!, line_names: [candidate.title] })),
+      ...(format === 'structured' ? { route_candidates: message === '规划行程' ? candidates : [...candidates].reverse() } : {}),
+    } })
+    emit({ type: 'final', thread_id: 'stable-order', answer: '选择已更新' })
+  })
+  const order = () => Array.from(document.querySelectorAll('.planning-route-option')).map((button) => button.getAttribute('aria-label'))
+  const user = userEvent.setup()
+  const view = render(<App />)
+  await user.type(screen.getByLabelText('输入你的出行问题'), '规划行程')
+  await user.click(screen.getByRole('button', { name: '发送问题' }))
+  await screen.findByTestId('route-map')
+  const initialOrder = order()
+  await user.click(screen.getByRole('button', { name: '公共交通', exact: true }))
+  const transitOrder = order()
+  await user.click(screen.getByRole('button', { name: '选择行程方案 公交乙线' }))
+  await waitFor(() => expect(screen.getByText('当前方案：公交乙线')).toBeInTheDocument())
+  expect(order()).toEqual(transitOrder)
+  expect(screen.getByTestId('route-map')).toHaveAttribute('data-path', JSON.stringify(candidates[1].geometry))
+  const recommended = screen.getByRole('button', { name: '选择行程方案 地铁甲线' })
+  expect(recommended).toHaveTextContent('系统推荐')
+  for (const candidate of [candidates[2], candidates[3], candidates[0]]) {
+    await user.click(screen.getByRole('button', { name: '全部方案' }))
+    expect(order()).toEqual(initialOrder)
+    await user.click(screen.getByRole('button', { name: `选择行程方案 ${candidate.title}` }))
+    await waitFor(() => expect(screen.getByText(`当前方案：${candidate.title}`)).toBeInTheDocument())
+    expect(order()).toEqual(initialOrder)
+    expect(screen.getByTestId('route-map')).toHaveAttribute('data-path', JSON.stringify(candidate.geometry))
+  }
+  await user.click(screen.getByRole('button', { name: '选择行程方案 驾车路线' }))
+  await waitFor(() => expect(screen.getByText('当前方案：驾车路线')).toBeInTheDocument())
+  await user.click(screen.getByRole('button', { name: '保存以上行程' }))
+  expect(vi.mocked(streamChat).mock.calls.at(-1)?.[0]).toBe('保存当前选择的行程')
+  expect(JSON.parse(sessionStorage.getItem('smart-travel-agent-session')!).currentJourney.card.selected_plan_id).toBe('driving:0')
+  view.unmount()
+  render(<App />)
+  expect(order()).toEqual(initialOrder)
+  expect(screen.getByRole('button', { name: '选择行程方案 驾车路线' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('点击具体候选后原卡片的地图与保存摘要一起更新，不追加第二张地图', async () => {
   vi.mocked(getHealth).mockResolvedValue({ status: 'ok', tools: [] })
   vi.mocked(getConversations).mockResolvedValue([])

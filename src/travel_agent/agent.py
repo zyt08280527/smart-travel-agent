@@ -17,6 +17,10 @@ from travel_agent.middleware.arrival_deadline_routing import (
 from travel_agent.middleware.itinerary_save_grounding import (
     ItinerarySaveGroundingMiddleware,
 )
+from travel_agent.middleware.multi_stop_context import MultiStopContextMiddleware
+from travel_agent.middleware.multi_stop_place_clarification import (
+    MultiStopPlaceClarificationMiddleware,
+)
 from travel_agent.middleware.preference_replanning import (
     PreferenceReplanningMiddleware,
 )
@@ -30,6 +34,27 @@ from travel_agent.model import create_chat_model
 from travel_agent.observability.mcp import preserve_observability_metadata
 
 SYSTEM_PROMPT = """你是智能出行助手。
+多站点行程有专用工具 plan_multi_stop_trip：用户要按顺序经过1–3个中间点时，
+先逐站确认地点、统一城市编码、坐标及用户已说明的停留/时间窗，再调用该工具。
+保持用户顺序，不将多站点压缩成一次起终点规划。多站点允许同时给出出发时刻和最终截止，
+例如“A → B，停留60分钟 → C”必须完整规划A到B和B到C。
+出发时间可选，用户未说明时 departure_time 传null，直接规划路线与预计耗时，不为此追问。
+未指定时间不得编造到离站时刻或日期，不判断赶得上截止、不查询到达时预报；公交为当前查询快照。
+只有用户要求校验到达时间窗或截止时，才需补充明确出发日期/时刻。
+地点存在多个实质不同候选时必须请用户确认，不能按排名、重要性或“最合适”擅自选第一个；
+同一POI重复记录不必反复追问，能唯一匹配用户明确地点时可直接使用。
+此规则优先于下文只适用于单段推荐的互斥时间规则。
+工具生成草案不是保存；多站点完整结果在对话右侧查看并确认保存，不得调用单段save_itinerary
+将完整多段行程压缩成一个交通方式摘要。该工具尚未计算天气，不得声称已结合天气。
+已有多站点草案时，修改偏好、停留、时间或地点，应基于完整请求重新调用多站点工具，
+保留未修改的地点顺序和约束；不得回到更早的单段快照进行推荐或保存。
+多站点地点澄清按每站候选分别编号，提示用户例如“第2站选第1个”；
+用户确认后保留原 stop_id 和完整请求，仅替换对应站的地点名称、坐标、POI ID和城市编码。
+解释多站点结果时，只能依据 selection.recommended_plan_id 对应方案及其 reasons、
+scores、limitations；selected_plan_id 是用户选择，不一定是系统推荐。
+不能驾车只排除驾车，不代表只能步行；公共交通仍可参与比较。
+候选查询失败只说明本次未获得该路线，不代表现实中没有公交或地铁；
+不得将其他候选的失败原因说成当前可行方案失败，也不得声称综合推荐一定最快或最便宜。
 你当前具备实时天气查询、地点搜索、驾车、步行与公共交通路线规划、行程保存与已保存行程查询能力。
 不要声称能够订票或执行任何尚未提供的能力。
 行程目前只能保存到本地存储，不支持导出文件。
@@ -129,6 +154,19 @@ def _itinerary_server_env() -> dict[str, str] | None:
     return {"ITINERARY_STORAGE_PATH": storage_path}
 
 
+def _route_server_env() -> dict[str, str] | None:
+    proxy = os.environ.get("ROUTE_PROXY_URL")
+    return {"ROUTE_PROXY_URL": proxy} if proxy is not None else None
+
+
+def _multi_stop_server_env() -> dict[str, str] | None:
+    environment = _route_server_env() or {}
+    storage_path = os.environ.get("MULTI_STOP_STORAGE_PATH")
+    if storage_path:
+        environment["MULTI_STOP_STORAGE_PATH"] = storage_path
+    return environment or None
+
+
 @asynccontextmanager
 async def travel_agent_session() -> AsyncIterator[
     tuple[CompiledStateGraph, list[BaseTool]]
@@ -145,16 +183,19 @@ async def travel_agent_session() -> AsyncIterator[
                 "transport": "stdio",
                 "command": sys.executable,
                 "args": ["-m", "travel_agent.mcp_servers.place_server"],
+                "env": _route_server_env(),
             },
             "route": {
                 "transport": "stdio",
                 "command": sys.executable,
                 "args": ["-m", "travel_agent.mcp_servers.route_server"],
+                "env": _route_server_env(),
             },
             "planning": {
                 "transport": "stdio",
                 "command": sys.executable,
                 "args": ["-m", "travel_agent.mcp_servers.planning_server"],
+                "env": _multi_stop_server_env(),
             },
             "itinerary": {
                 "transport": "stdio",
@@ -197,6 +238,8 @@ async def travel_agent_session() -> AsyncIterator[
                 # after_model hooks run in reverse registration order. Keep this
                 # after HITL so save arguments are grounded before approval.
                 ItinerarySaveGroundingMiddleware(),
+                MultiStopPlaceClarificationMiddleware(),
+                MultiStopContextMiddleware(),
             ],
             checkpointer=checkpointer,
         )

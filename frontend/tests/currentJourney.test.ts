@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import type { PlanningResultCard } from '../src/api'
-import { latestJourney, restoreJourney } from '../src/currentJourney'
+import { latestJourney, preservePlanningOrder, restoreJourney } from '../src/currentJourney'
 
 const driving: PlanningResultCard = {
   type: 'planning', origin_name: '起点', destination_name: '终点', recommended_mode: 'driving',
@@ -31,4 +31,21 @@ test('拒绝复用其他会话的当前行程', () => {
 test('当前行程恢复不再依赖聊天展示锚点或历史数组位置', () => {
   const current = { threadId: 'thread-a', card: walking, anchor: { messageId: 'missing', cardIndex: 0 } }
   expect(restoreJourney(current, [], 'thread-a')?.card).toBe(walking)
+})
+
+test('新的多站点结果不会恢复成更早的单段路线', () => {
+  const latest = latestJourney([...messages, { id: 'multi', cards: [{ type: 'multi_stop', draft_id: 'draft', stop_names: ['A', 'B', 'C'], status: 'feasible' }] }], 'thread-a')
+  expect(latest?.card.type).toBe('multi_stop')
+  expect(restoreJourney(latest, messages, 'thread-a')?.card).toBe(latest?.card)
+})
+
+test('手动选择保留原显示顺序，而刷新或新目的地采用新顺序，不改写原快照', () => {
+  const first = { plan_id: 'driving:0', mode: 'driving' as const, title: '驾车', selected: true, recommended: true, duration_s: 100 }
+  const second = { ...first, plan_id: 'walking:0', mode: 'walking' as const, title: '步行', selected: false, recommended: false }
+  const previous = { ...driving, route_candidates: [first, second] }
+  const incoming = { ...walking, route_candidates: [second, first] }
+  expect(preservePlanningOrder(previous, incoming).route_candidates?.map((candidate) => candidate.plan_id)).toEqual(['driving:0', 'walking:0'])
+  expect(incoming.route_candidates.map((candidate) => candidate.plan_id)).toEqual(['walking:0', 'driving:0'])
+  expect(preservePlanningOrder(previous, { ...incoming, route_refreshed: true }).route_candidates).toBe(incoming.route_candidates)
+  expect(preservePlanningOrder(previous, { ...incoming, destination_name: '新终点' }).route_candidates).toBe(incoming.route_candidates)
 })

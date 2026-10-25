@@ -1,0 +1,222 @@
+[
+  {
+    "provider": "amap",
+    "provider_place_ids": ["B02F38IRTR", "B0FFGM6YKB"],
+    "latitude": 22.54639,
+    "longitude": 114.05680,
+    "match_radius_m": 150,
+    "enabled": true,
+    "card": {
+      "attraction_id": "sz-museum-jintian",
+      "name": "深圳博物馆金田路馆（历史民俗）",
+      "city_code": "440300",
+      "official_url": "https://mobile.shenzhenmuseum.com/guide",
+      "category": "museum",
+      "summary": "深圳博物馆以历史民俗为主题的馆区，位于金田路市民中心。",
+      "summary_source": {
+        "title": "深圳博物馆预约须知",
+        "url": "https://mobile.shenzhenmuseum.com/guide",
+        "checked_at": "2026-10-23T09:27:42Z"
+      },
+      "suggested_stay_minutes": [120, 240],
+      "stay_note": "产品建议，按兴趣调整；不会自动修改行程停留时间。",
+      "facts": [
+        {
+          "kind": "reservation",
+          "status": "verified",
+          "value": "普通入馆无需提前预约，通过安检后参观；讲座、活动及团体服务另行核实。",
+          "scope": "金田路馆普通入馆规则，不保证指定日期开放或活动名额。",
+          "expires_at": "2026-10-30T09:12:00Z",
+          "sources": [
+            {
+              "title": "深圳博物馆预约须知",
+              "url": "https://mobile.shenzhenmuseum.com/guide",
+              "checked_at": "2026-10-23T09:12:00Z"
+            },
+            {
+              "title": "深圳市政府：文化场馆取消预约入场",
+              "url": "https://www.sz.gov.cn/cn/xxgk/zfxxgj/bmdt/content/post_11451373.html",
+              "checked_at": "2026-10-23T09:12:00Z"
+            }
+          ]
+        },
+        {
+          "kind": "ticket",
+          "status": "verified",
+          "value": "普通入馆参观免费；其他服务、临时展览及活动安排请查看对应官方通知。",
+            "ticket_price_yuan": 0,
+          "scope": "金田路馆普通参观，不将其他馆区或付费讲解纳入门票结论。",
+          "expires_at": "2026-10-30T09:12:00Z",
+          "sources": [
+            {
+              "title": "深圳博物馆参观服务须知",
+              "url": "https://cdn3.shenzhenmuseum.com/myOrderNew",
+              "checked_at": "2026-10-23T09:12:00Z"
+            }
+          ]
+        },
+        {
+          "kind": "opening",
+          "status": "conflicting",
+          "scope": "官方页面列有不同开馆时刻，需核对最新公告；不据此判断指定日期营业。",
+          "sources": [
+            {
+              "title": "深圳博物馆预约须知（页面内时间表存在差异）",
+              "url": "https://mobile.shenzhenmuseum.com/guide",
+              "checked_at": "2026-10-23T09:12:00Z"
+            },
+            {
+              "title": "深圳博物馆2026年10月恢复开放公告",
+              "url": "https://mobile.shenzhenmuseum.com/newsDetail?clazzName=CmsInformation&from=1&resId=8070ff15620a423ba14961a28684acdc&type=2",
+              "checked_at": "2026-10-23T09:12:00Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "provider": "amap",
+    "provider_place_ids": [
+      "B0LKCH16U2",
+      "BY0001PJW3"
+    ],
+    "latitude": 22.5452,
+    "longitude": 114.09627,
+    "match_radius_m": 150,
+    "enabled": true,
+    "card": {
+      "attraction_id": "sz-museum-tongxin",
+      "name": "深圳博物馆同心路馆（古代艺术）",
+      "city_code": "440300",
+      "official_url": "https://mobile.shenzhenmuseum.com/guide",
+      "category": "museum",
+      "summary": "深圳博物馆以古代艺术为主题的馆区，位于同心路。",
+      "summary_source": {
+        "title": "深圳博物馆预约须知",
+        "url": "https://mobile.shenzhenmuseum.com/guide",
+        "checked_at": "2026-10-23T09:27:42Z"
+      },
+      "suggested_stay_minutes": [
+        120,
+        240
+      ],
+      "facts": [
+        {
+          "kind": "reservation",
+          "status": "verified",
+          "value": "普通入馆无需提前预约，通过安检后参观；活动及讲座另行核实。",
+          "scope": "仅同心路馆普通入馆，不保证指定日期开放或活动名额。",
+          "sources": [
+            {
+              "title": "深圳博物馆预约须知",
+              "url": "https://mobile.shenzhenmuseum.com/guide",
+              "checked_at": "2026-10-23T09:27:42Z"
+            }
+          ],
+          "expires_at": "2026-10-30T09:27:42Z"
+        },
+        {
+          "kind": "ticket",
+          "status": "verified",
+          "value": "普通入馆参观免费；临时展览及其他服务请查看对应官方通知。",
+            "ticket_price_yuan": 0,
+          "scope": "仅同心路馆普通参观。",
+          "sources": [
+            {
+              "title": "深圳博物馆参观服务须知",
+              "url": "https://cdn3.shenzhenmuseum.com/myOrderNew",
+              "checked_at": "2026-10-23T09:27:42Z"
+            }
+          ],
+          "expires_at": "2026-10-30T09:27:42Z"
+        },
+        {
+          "kind": "opening",
+          "status": "conflicting",
+          "scope": "官方页面内有不同开馆时刻，待核实最新安排，不判断指定日期开放。",
+          "sources": [
+            {
+              "title": "深圳博物馆预约须知",
+              "url": "https://mobile.shenzhenmuseum.com/guide",
+              "checked_at": "2026-10-23T09:27:42Z"
+            },
+            {
+              "title": "深圳博物馆2026年10月恢复开放公告",
+              "url": "https://mobile.shenzhenmuseum.com/newsDetail?clazzName=CmsInformation&from=1&resId=8070ff15620a423ba14961a28684acdc&type=2",
+              "checked_at": "2026-10-23T09:27:42Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "provider": "amap",
+    "provider_place_ids": [
+      "B02F37WNJN"
+    ],
+    "latitude": 22.53806701778551,
+    "longitude": 113.91902625906145,
+    "match_radius_m": 150,
+    "enabled": true,
+    "card": {
+      "attraction_id": "sz-nanshan-museum",
+      "name": "南山博物馆",
+      "city_code": "440300",
+      "official_url": "https://www.nanshanmuseum.com/appointmentIndex",
+      "category": "museum",
+      "summary": "位于南山大道的综合类博物馆，常设展览呈现南山的历史与发展。",
+      "summary_source": {
+        "title": "深圳市政府南山博物馆场馆介绍",
+        "url": "https://www.sz.gov.cn/szzt2010/szwtt/wtcg/whcg/content/post_11129999.html",
+        "checked_at": "2026-10-23T09:27:42Z"
+      },
+      "suggested_stay_minutes": [
+        90,
+        180
+      ],
+      "facts": [
+        {
+          "kind": "reservation",
+          "status": "verified",
+          "value": "普通入馆无需提前预约，通过安检后参观；客流较大时可能临时管控。",
+          "scope": "仅南山大道本馆普通入馆，活动与其他馆区另行核实。",
+          "sources": [
+            {
+              "title": "南山博物馆官方入馆须知",
+              "url": "https://www.nanshanmuseum.com/appointmentIndex",
+              "checked_at": "2026-10-23T09:27:42Z"
+            }
+          ],
+          "expires_at": "2026-10-30T09:27:42Z"
+        },
+        {
+          "kind": "ticket",
+          "status": "unknown",
+          "scope": "本轮未取得足够明确的当前门票依据，普通入馆、特展及活动分别核实。",
+          "sources": []
+        },
+        {
+          "kind": "opening",
+          "status": "verified",
+          "value": "常规日间为周二至周日10:00–18:00，17:30停止入场；周一闭馆，法定重大节假日及特殊情况另行公告。",
+          "scope": "仅常规日间规则，不用于保证指定日期开放；夜间展厅安排另行核实。",
+          "sources": [
+            {
+              "title": "南山博物馆官方入馆须知",
+              "url": "https://www.nanshanmuseum.com/appointmentIndex",
+              "checked_at": "2026-10-23T09:27:42Z"
+            },
+            {
+              "title": "深圳市政府南山博物馆场馆介绍",
+              "url": "https://www.sz.gov.cn/szzt2010/szwtt/wtcg/whcg/content/post_11129999.html",
+              "checked_at": "2026-10-23T09:27:42Z"
+            }
+          ],
+          "expires_at": "2026-10-30T09:27:42Z"
+        }
+      ]
+    }
+  }
+]

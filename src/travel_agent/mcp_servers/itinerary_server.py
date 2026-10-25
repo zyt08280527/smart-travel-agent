@@ -65,6 +65,7 @@ async def save_itinerary(
         "traffic_aware_estimate",
     ],
     notes: str | None = None,
+    watch_context: dict | None = None,
 ) -> str:
     """将已经规划好的行程保存到本地存储。
 
@@ -96,6 +97,7 @@ async def save_itinerary(
             duration_s=duration_s,
             duration_basis=duration_basis,
             notes=notes,
+            watch_context=watch_context,
         )
         saved = await ItineraryService().save(draft)
         return json.dumps(

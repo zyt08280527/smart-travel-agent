@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from travel_agent.domain.decision import JourneyContext
+
 
 class ItineraryDraft(BaseModel):
     """An itinerary proposed by the Agent before it is saved."""
@@ -18,6 +20,7 @@ class ItineraryDraft(BaseModel):
         "traffic_aware_estimate",
     ] = "static_without_live_traffic"
     notes: str | None = Field(default=None, max_length=1000)
+    watch_context: JourneyContext | None = None
 
 
 class SavedItinerary(ItineraryDraft):

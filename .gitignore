@@ -14,6 +14,9 @@ artifacts/load-tests/*.json
 data/checkpoints.sqlite*
 data/conversations.sqlite*
 data/itineraries.jsonl
+data/trips.sqlite*
+data/multi_stop.sqlite*
+data/*.jsonl.v1-*.bak
 dist/
 build/
 *.egg-info/

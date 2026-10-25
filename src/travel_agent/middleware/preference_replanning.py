@@ -17,6 +17,7 @@ from travel_agent.domain.decision import (
     TravelMode,
 )
 from travel_agent.domain.transit import TransitPlan
+from travel_agent.middleware.multi_stop_intent import is_multi_stop_intent
 from travel_agent.middleware.recommendation_explanation import (
     latest_planning_payload,
 )
@@ -124,6 +125,8 @@ def _latest_route_choice_payload(
 ) -> tuple[str, dict[str, object]] | None:
     """Return the newest selectable comprehensive or transit-only snapshot."""
     for message in reversed(messages):
+        if isinstance(message, ToolMessage) and message.name == "plan_multi_stop_trip":
+            return None
         if isinstance(message, AIMessage):
             planning = message.additional_kwargs.get("travel_planning_payload")
             if isinstance(planning, dict):
@@ -409,6 +412,8 @@ class PreferenceReplanningMiddleware(AgentMiddleware):
             return None
         content = messages[-1].content
         if not isinstance(content, str):
+            return None
+        if is_multi_stop_intent(content):
             return None
         if content.startswith("采用历史方案 "):
             version_id = content.removeprefix("采用历史方案 ").strip()

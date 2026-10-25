@@ -22,6 +22,7 @@ class AmapCityInfo(BaseModel):
     adcode: str = Field(min_length=1)
     province: str = Field(min_length=1)
     district: str | None = None
+    formatted_address: str | None = None
 
 
 class AmapCityServiceError(RuntimeError):
@@ -114,4 +115,5 @@ class AmapCityService:
             adcode=adcode,
             province=province,
             district=district if isinstance(district, str) and district else None,
+            formatted_address=(payload['regeocode'].get('formatted_address') or None),
         )

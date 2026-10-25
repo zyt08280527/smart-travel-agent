@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from travel_agent.config import get_settings
 from travel_agent.domain.decision import TravelPreferences
+from travel_agent.domain.multi_stop import MultiStopRequest
 from travel_agent.domain.route import GeoPoint
 from travel_agent.observability.http import (
     capture_external_http_requests,
@@ -19,6 +20,8 @@ from travel_agent.services.departure_time_parser import (
     ArrivalTimeParser,
     DepartureTimeParser,
 )
+from travel_agent.services.multi_stop_planning import MultiStopPlanningService
+from travel_agent.services.multi_stop_workspace import MultiStopWorkspace, MultiStopWorkspaceError
 from travel_agent.services.travel_decision import TravelDecisionError
 from travel_agent.services.travel_planning import TravelPlanningService
 
@@ -107,28 +110,20 @@ async def recommend_travel_plan(
             if departure_time_text and arrival_time_text:
                 text = _error_json("不能同时指定出发时间和最晚到达时间")
                 return observed_text_result(text, requests)
-            departure_time = DepartureTimeParser(
-                settings.business_timezone
-            ).parse(
+            departure_time = DepartureTimeParser(settings.business_timezone).parse(
                 departure_time_text or "",
                 reference_at=reference_at,
             )
             if departure_time is not None and departure_time.precision == "date_only":
-                text = _error_json(
-                    "只识别到出发日期，请补充上午、下午、晚上或具体时间"
-                )
+                text = _error_json("只识别到出发日期，请补充上午、下午、晚上或具体时间")
                 return observed_text_result(text, requests)
-            arrival_deadline = ArrivalTimeParser(
-                settings.business_timezone
-            ).parse(
+            arrival_deadline = ArrivalTimeParser(settings.business_timezone).parse(
                 arrival_time_text or "",
                 reference_at=reference_at,
                 buffer_minutes=arrival_buffer_minutes,
             )
             if arrival_deadline is not None and arrival_deadline.precision != "exact":
-                text = _error_json(
-                    "到达目标必须包含具体时间，例如明天上午9点前到达"
-                )
+                text = _error_json("到达目标必须包含具体时间，例如明天上午9点前到达")
                 return observed_text_result(text, requests)
             origin = GeoPoint(
                 latitude=origin_latitude,
@@ -159,11 +154,31 @@ async def recommend_travel_plan(
             )
             text = result.model_dump_json(exclude_none=True)
         except ValidationError:
-            text = _error_json(
-                "出行偏好或坐标参数无效，请检查城市、起终点、经纬度及约束"
-            )
+            text = _error_json("出行偏好或坐标参数无效，请检查城市、起终点、经纬度及约束")
         except (TravelDecisionError, ValueError) as exc:
             text = _error_json(str(exc))
+    return observed_text_result(text, requests)
+
+
+@mcp.tool()
+async def plan_multi_stop_trip(request: MultiStopRequest) -> CallToolResult:
+    """规划同城固定顺序、1–3 个中间点的完整行程。
+
+    必须先确认每一站的地点、WGS84坐标和统一城市编码。有歧义先确认，不自动选第一项。
+    出发时间可选；未说明时 departure_time 传null，直接规划分段及总耗时，不追问时间。
+    不编造到离站时刻；公交为当前查询快照。只有需校验时间窗/截止时才须明确出发时间。
+    不得猜测用户未说明的停留或时间窗；缺少必要信息先追问。
+    保持用户顺序，不使用单段推荐替代此工具。允许同时给出明确出发和最终到达截止。
+    工具返回多段时间线和真实候选；尚未考虑天气，路线是查询时快照，不保证未来班次。
+    此操作只生成草案，不保存。用户可以从结果入口查看、选择并确认保存完整行程。
+    """
+    with capture_external_http_requests() as requests:
+        try:
+            result = await MultiStopPlanningService().plan(request)
+            draft = await MultiStopWorkspace().create_draft(result)
+            text = draft.model_dump_json()
+        except (ValueError, MultiStopWorkspaceError):
+            text = _error_json("多站点规划未完成，请核对地点、出发时刻、停留时间与约束后重试。")
     return observed_text_result(text, requests)
 
 

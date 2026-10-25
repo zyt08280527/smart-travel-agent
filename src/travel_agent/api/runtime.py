@@ -27,6 +27,7 @@ from travel_agent.domain.conversation import (
     ConversationSummary,
 )
 from travel_agent.domain.decision import JourneyContext
+from travel_agent.domain.multi_stop import MultiStopDraft
 from travel_agent.presentation import render_user_response
 from travel_agent.services.conversation import ConversationRepository
 from travel_agent.services.journey_versions import journey_versions
@@ -36,6 +37,21 @@ AgentSession = AbstractAsyncContextManager[
     tuple[CompiledStateGraph, list[BaseTool]]
 ]
 AgentSessionFactory = Callable[[], AgentSession]
+
+
+def chat_input(message: str, draft: MultiStopDraft | None = None) -> dict:
+    if draft is None:
+        return {"messages": [{"role": "user", "content": message}]}
+    identity = f"workspace-{draft.draft_id}"
+    # This is a server-read planning snapshot, never client-supplied route facts.
+    return {"messages": [
+        AIMessage(id=f"{identity}-call", content="用户在界面中确认采用此完整行程草案。",
+                  tool_calls=[{"name": "plan_multi_stop_trip", "id": identity,
+                               "args": {"request": draft.result.request.model_dump(mode="json")}}]),
+        ToolMessage(id=f"{identity}-result", name="plan_multi_stop_trip", tool_call_id=identity,
+                    content=draft.model_dump_json()),
+        HumanMessage(content=message),
+    ]}
 
 
 class AgentRuntimeError(RuntimeError):
@@ -162,6 +178,7 @@ class AgentRuntime:
         self,
         message: str,
         thread_id: UUID | None = None,
+        *, multi_stop_draft: MultiStopDraft | None = None,
     ) -> AgentResponse:
         """Send one user message using a new or existing thread."""
         agent = self._require_agent()
@@ -180,7 +197,7 @@ class AgentRuntime:
         await self._store_user_message(current_thread_id, message)
         try:
             result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": message}]},
+                chat_input(message, multi_stop_draft),
                 config=self._config(current_thread_id),
             )
             response = self._build_response(current_thread_id, result)
@@ -261,6 +278,7 @@ class AgentRuntime:
         self,
         message: str,
         thread_id: UUID | None = None,
+        *, multi_stop_draft: MultiStopDraft | None = None,
     ) -> AsyncIterator[AgentStreamEvent]:
         """Stream one chat turn using the public application event protocol."""
         current_thread_id = thread_id or uuid4()
@@ -290,7 +308,7 @@ class AgentRuntime:
             result_cards: list[dict[str, Any]] = []
             config = self._config(current_thread_id)
             async for part in agent.astream(
-                {"messages": [{"role": "user", "content": message}]},
+                chat_input(message, multi_stop_draft),
                 config=config,
                 stream_mode=["updates", "messages"],
                 version="v2",

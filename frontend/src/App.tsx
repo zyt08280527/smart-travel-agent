@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { NotificationCenter } from './NotificationCenter'
+import { DepartureWatch } from './DepartureWatch'
 import {
   decideApproval,
   deleteConversation,
@@ -28,9 +30,19 @@ import type {
   JourneyVersion,
 } from './api'
 import { RouteMap } from './RouteMap'
-import { isRouteChoiceCard, journeySummary, latestJourney, restoreJourney } from './currentJourney'
+import { isRouteChoiceCard, journeySummary, latestJourney, preservePlanningOrder, restoreJourney } from './currentJourney'
 import type { CurrentJourney } from './currentJourney'
 import './App.css'
+import { MultiStopWorkspace } from './MultiStopWorkspace'
+import { AttractionInfo } from './AttractionInfo'
+import { AttractionSearch } from './AttractionSearch'
+import { DiscoveryWorkspace, DiscoveryResults } from './DiscoveryWorkspace'
+import type { DiscoveryCandidate, DiscoveryResult } from './DiscoveryWorkspace'
+import { planMultiStop } from './multiStopApi'
+import type { MultiDraft } from './multiStopApi'
+import { Modal } from './Modal'
+import { chooseDiscoveryFromHistory, isDiscoveryEdit, refineDiscovery, syncDiscoverySelection } from './discoveryApi'
+import type { DiscoveryConversation, DiscoveryCriteria } from './discoveryApi'
 
 type ConnectionState = 'loading' | 'connected' | 'error'
 
@@ -47,6 +59,10 @@ type StoredSession = {
   threadId: string
   pendingActions: PendingAction[]
   currentJourney?: CurrentJourney | null
+  discoveryResult?: DiscoveryResult | null
+  multiContext?: { draft_id: string; plan_id: string } | null
+  discoveryConversation?: DiscoveryConversation | null
+  discoveryNotice?: string
 }
 
 type ReplanComparison = {
@@ -64,6 +80,7 @@ const TOOL_LABELS: Record<string, string> = {
   plan_walking_route: '步行路线规划',
   plan_transit_route: '公共交通路线规划',
   recommend_travel_plan: '综合出行推荐',
+  plan_multi_stop_trip: '多站点行程规划',
   save_itinerary: '行程保存',
   list_itineraries: '已保存行程查询',
 }
@@ -86,6 +103,10 @@ function loadStoredSession(): StoredSession {
     return {
       messages,
       threadId,
+      discoveryResult: parsed.discoveryResult ?? null,
+      multiContext: parsed.multiContext ?? null,
+      discoveryConversation: parsed.discoveryConversation ?? null,
+      discoveryNotice: parsed.discoveryNotice ?? '',
       currentJourney: restoreJourney(parsed.currentJourney, messages, threadId),
       pendingActions: Array.isArray(parsed.pendingActions)
         ? parsed.pendingActions
@@ -213,6 +234,10 @@ function SavedItineraryItem({
               : '静态预计，不含实时路况'}
           </p>
           {itinerary.notes && <p>备注：{itinerary.notes}</p>}
+          {itinerary.watch_context?.departure_time && <p>计划出发：{formatPlanningDateTime(itinerary.watch_context.departure_time.departure_at)}</p>}
+          <DepartureWatch savedId={itinerary.itinerary_id} single
+            scheduled={!!itinerary.watch_context?.departure_time}
+            eligible={!!(itinerary.watch_context?.origin && itinerary.watch_context?.destination)} />
           <div className="saved-itinerary-actions">
             {onReplan && (
               <button
@@ -490,6 +515,7 @@ function PlaceCard({ card }: { card: PlaceResultCard }) {
                   {place.longitude.toFixed(6)}
                 </span>
                 {tags && <small>{tags}</small>}
+                {card.provider === 'amap' && place.provider_place_id && place.city_code && <AttractionInfo place={{ ...place, city_code: place.city_code }} />}
               </li>
             )
           })}
@@ -658,13 +684,12 @@ function planningRouteCandidates(
 
   const selectedMode = card.selected_mode ?? card.recommended_mode
   const selectedTransitIndex = card.selected_transit_candidate_index ?? 0
+  const recommendedTransitId = card.recommended_plan_id?.match(/^transit:(\d+)$/)
+  const recommendedTransitIndex = recommendedTransitId
+    ? Number(recommendedTransitId[1]) : selectedTransitIndex
   return card.ranked_options.flatMap<PlanningRouteCandidate>((option) => {
     if (option.mode === 'transit' && (card.transit_candidates?.length ?? 0) > 0) {
-      const orderedTransitCandidates = [...(card.transit_candidates ?? [])]
-        .sort((left, right) => Number(
-          right.candidate_index === selectedTransitIndex,
-        ) - Number(left.candidate_index === selectedTransitIndex))
-      return orderedTransitCandidates.map((candidate) => ({
+      return (card.transit_candidates ?? []).map((candidate) => ({
         plan_id: `transit:${candidate.candidate_index}`,
         mode: 'transit' as const,
         title: (candidate.line_names?.length ?? 0) > 0
@@ -675,15 +700,15 @@ function planningRouteCandidates(
           && candidate.candidate_index === selectedTransitIndex,
         recommended:
           card.recommended_mode === 'transit'
-          && candidate.candidate_index === selectedTransitIndex,
-        total_score: candidate.candidate_index === selectedTransitIndex
+          && candidate.candidate_index === recommendedTransitIndex,
+        total_score: candidate.candidate_index === recommendedTransitIndex
           ? option.total_score
           : null,
         duration_s: candidate.duration_s,
         cost_yuan: candidate.cost_yuan,
         walking_distance_m: candidate.walking_distance_m,
         transfer_count: candidate.transfer_count,
-        latest_departure_at: candidate.candidate_index === selectedTransitIndex
+        latest_departure_at: candidate.candidate_index === recommendedTransitIndex
           ? option.latest_departure_at
           : null,
         transit_candidate_index: candidate.candidate_index,
@@ -870,6 +895,7 @@ function PlanningCard({
       </div>
 
       {(card.recommendation_notes ?? []).map((note) => <p className="result-card-notice" key={note}>{note}</p>)}
+      <AttractionSearch destination={card.destination_name} />
 
       <div className="planning-recommendation">
         {recommendationChanged ? (
@@ -1166,16 +1192,23 @@ function ResultCardView({
   onSaveItinerary,
   strategyChangeDisabled,
   saveDisabled,
+  onMultiContext,
+  multiSelectedPlanId,
 }: {
   card: ResultCard
   onSelectPlan?: (candidate: PlanningRouteCandidate) => void
   onSelectPriority?: (priority: PlanningPriority) => void
   onApplyConstraints?: (message: string) => void
   onSelectTransitCandidate?: (candidateIndex: number) => void
+  onMultiContext?: (context: { draft_id: string; plan_id: string }) => void
+  multiSelectedPlanId?: string
   onSaveItinerary?: () => void
   strategyChangeDisabled?: boolean
   saveDisabled?: boolean
 }) {
+  if (card.type === 'multi_stop') {
+    return <MultiStopWorkspace key={card.draft_id} initialDraftId={card.draft_id} initialPlanId={multiSelectedPlanId} embedded externalDisabled={strategyChangeDisabled} onContextChange={onMultiContext} />
+  }
   if (card.type === 'weather') {
     return <WeatherCard card={card} />
   }
@@ -1214,7 +1247,18 @@ function ResultCardView({
 }
 
 function App() {
+  const [initialMultiDraft] = useState(() => new URLSearchParams(window.location.search).get('multiStopDraft'))
+  const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [initialSession] = useState<StoredSession>(loadStoredSession)
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(initialSession.discoveryResult ?? null)
+  const [discoveryBusy, setDiscoveryBusy] = useState(false)
+  const [discoveryConversation, setDiscoveryConversation] = useState<DiscoveryConversation | null>(initialSession.discoveryConversation ?? null)
+  const [discoveryNotice, setDiscoveryNotice] = useState(initialSession.discoveryNotice ?? '')
+  const [multiContext, setMultiContext] = useState(initialSession.multiContext ?? null)
+  const discoveryMessageId = useRef('')
+  const historySelection = useRef<{ thread: string; revision: number; draft: string; plan: string } | null>(null)
+  const selectionQueue = useRef(Promise.resolve())
+  const [selectionSyncError, setSelectionSyncError] = useState('')
   const [connectionState, setConnectionState] =
     useState<ConnectionState>('loading')
   const [tools, setTools] = useState<string[]>([])
@@ -1223,9 +1267,10 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(
     initialSession.messages,
   )
-  const [threadId, setThreadId] = useState(initialSession.threadId)
+  const [threadId, setThreadId] = useState(initialSession.threadId || (initialMultiDraft ? crypto.randomUUID() : ''))
   const [currentJourney, setCurrentJourney] = useState<CurrentJourney | null>(
-    initialSession.currentJourney ?? latestJourney(initialSession.messages, initialSession.threadId),
+    initialMultiDraft ? { threadId, card: { type: 'multi_stop', draft_id: initialMultiDraft, stop_names: [], status: 'insufficient_data' } }
+      : initialSession.currentJourney ?? latestJourney(initialSession.messages, initialSession.threadId),
   )
   const activeRun = useRef(0)
   const [versions, setVersions] = useState<JourneyVersion[]>([])
@@ -1346,14 +1391,163 @@ function App() {
       threadId,
       pendingActions,
       currentJourney,
+      discoveryResult,
+      multiContext,
+      discoveryConversation,
+      discoveryNotice,
     }
     sessionStorage.setItem(
       SESSION_STORAGE_KEY,
       JSON.stringify(storedSession),
     )
-  }, [messages, threadId, pendingActions, currentJourney])
+  }, [messages, threadId, pendingActions, currentJourney, discoveryResult, multiContext, discoveryConversation, discoveryNotice])
+
+  function adoptMultiDraft(draft: MultiDraft, announce = true, storedAnswer?: string | null) {
+    const currentThread = threadId || crypto.randomUUID()
+    const card: Extract<ResultCard, { type: 'multi_stop' }> = {
+      type: 'multi_stop', draft_id: draft.draft_id,
+      stop_names: draft.result.request.stops.map((stop) => stop.name), status: draft.result.selection.status as 'feasible' | 'infeasible' | 'insufficient_data',
+    }
+    setThreadId(currentThread)
+    setCurrentJourney({ threadId: currentThread, card })
+    setMultiContext(null)
+    setDiscoveryResult(null)
+    setActivePanel('chat')
+    if (announce) setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'assistant',
+      content: storedAnswer || (draft.result.selection.status === 'feasible'
+        ? '已生成完整行程。右侧可比较方案、查看所有分段和地图；确认后再保存。路线为查询时估计。'
+        : '本次未得到满足条件的完整方案，右侧列出了原因。可以调整条件后重新规划。'), cards: [card], journeySummary: journeySummary(card) }])
+    window.history.replaceState(null, '', window.location.pathname)
+  }
+
+  function acceptMultiContext(context: { draft_id: string; plan_id: string }) {
+    setMultiContext(context)
+    setCurrentJourney((journey) => journey?.card.type === 'multi_stop' && journey.card.draft_id !== context.draft_id
+      ? { ...journey, card: { ...journey.card, draft_id: context.draft_id } } : journey)
+    if (!historySelection.current && discoveryConversation?.thread_id && discoveryConversation.expected_revision && discoveryConversation.selected_attraction_id && currentJourney?.card.type === 'multi_stop') {
+      historySelection.current = { thread: discoveryConversation.thread_id, revision: discoveryConversation.expected_revision, draft: currentJourney.card.draft_id, plan: '' }
+    }
+    const target = historySelection.current?.thread
+    if (!target) return
+    selectionQueue.current = selectionQueue.current.then(async () => {
+      const previous = historySelection.current
+      if (!previous || previous.thread !== target || (previous.draft === context.draft_id && previous.plan === context.plan_id)) return
+      try {
+        const info = await syncDiscoverySelection(target, previous.revision, context.draft_id, context.plan_id)
+        if (historySelection.current?.thread !== target) return
+        historySelection.current = { thread: target, revision: info.revision, draft: context.draft_id, plan: context.plan_id }
+        setDiscoveryConversation((value) => value?.thread_id === target ? { ...value, expected_revision: info.revision } : value)
+        setSelectionSyncError('')
+      } catch (cause) {
+        if (historySelection.current?.thread === target) setSelectionSyncError(cause instanceof Error ? cause.message : '当前选择尚未同步到历史。')
+      }
+    })
+  }
+
+  function startDiscovery(summary: string) {
+    setDiscoveryOpen(false)
+    setDiscoveryBusy(true)
+    setChatError('')
+    const currentThread = threadId || crypto.randomUUID()
+    setThreadId(currentThread)
+    discoveryMessageId.current = crypto.randomUUID()
+    setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'user', content: summary },
+      { id: discoveryMessageId.current, role: 'assistant', content: '正在按你的条件比较现有馆区的往返路线、停留和费用…' }])
+    setActivePanel('chat')
+    return currentThread
+  }
+
+  function finishDiscovery(result: DiscoveryResult, criteria?: DiscoveryCriteria, lead = '') {
+    setDiscoveryBusy(false)
+    setDiscoveryResult(result)
+    setDiscoveryNotice('')
+    historySelection.current = null
+    setSelectionSyncError('')
+    if (criteria) setDiscoveryConversation({ request: criteria, candidate_ids: result.candidates.map((item) => item.card.attraction_id), pending_changes: null, ...(result.history ? { thread_id: result.history.thread_id, expected_revision: result.history.revision } : {}) })
+    if (result.history) void refreshConversations()
+    const content = result.candidates.length
+      ? `按你的条件，可考虑${result.candidates.map((item) => item.card.name).join('、')}。\n\n`
+        + result.candidates.map((item, index) => `${index + 1}. **${item.card.name}**：${item.reasons.join(' ')} ${item.warnings.join(' ')}`).join('\n\n')
+        + '\n\n右侧按预计往返耗时展示候选。可以点击“规划去这里”，或告诉我“去某个馆区”。开放和预约安排仍需核实。'
+      : '本次没有满足条件的目的地候选。右侧保留了未入选原因；可重新打开“帮我选目的地”调整条件，不会自动放宽限制。'
+    setMessages((items) => items.map((item) => item.id === discoveryMessageId.current ? { ...item, content: result.history?.assistant_content || (lead ? `${lead}\n\n${content}` : content) } : item))
+  }
+
+  async function refineDestinations(text: string) {
+    if (!discoveryConversation) return
+    const run = ++activeRun.current
+    const assistantId = crypto.randomUUID()
+    discoveryMessageId.current = assistantId
+    setDiscoveryBusy(true)
+    setChatError('')
+    setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'user', content: text },
+      { id: assistantId, role: 'assistant', content: '正在核对修改并重新计算目的地候选…' }])
+    try {
+      await selectionQueue.current
+      if (run !== activeRun.current) return
+      const syncedSelection = historySelection.current
+      const context = syncedSelection && syncedSelection.thread === discoveryConversation.thread_id
+        ? { ...discoveryConversation, expected_revision: syncedSelection.revision } : discoveryConversation
+      const reply = await refineDiscovery(context, text)
+      if (run !== activeRun.current) return
+      if (reply.status === 'updated' && reply.result) {
+        finishDiscovery({ ...reply.result, history: reply.history }, reply.request, reply.answer)
+      } else {
+        setDiscoveryConversation((value) => value ? { ...value, request: reply.request, pending_changes: reply.pending_changes, ...(reply.history ? { expected_revision: reply.history.revision } : {}) } : value)
+        setDiscoveryNotice(reply.status === 'cancelled' ? '' : '本次修改尚未生效，仍保留上一次推荐结果；请补充确认，或说“取消修改”。')
+        setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, content: reply.history?.assistant_content || reply.answer } : item))
+        if (reply.history) void refreshConversations()
+      }
+    } catch (cause) {
+      if (run !== activeRun.current) return
+      const error = cause instanceof Error ? cause.message : '重新推荐失败，请重试。'
+      setDiscoveryNotice('重新推荐未完成，下方仍为上一次结果。可以重试，或说“取消修改”。')
+      setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, content: `本次修改未应用：${error} 原条件与结果仍保留。` } : item))
+    } finally { if (run === activeRun.current) setDiscoveryBusy(false) }
+  }
+
+  async function chooseDiscovery(candidate: DiscoveryCandidate, text?: string) {
+    if (isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length) return
+    if (discoveryNotice) {
+      setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'assistant', content: '请先补充确认或说“取消修改”，再采用目的地；当前展示的仍是上一次结果。' }])
+      return
+    }
+    const run = ++activeRun.current
+    setIsSending(true)
+    setChatError('')
+    setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'user', content: text || `去${candidate.card.name}，请规划完整往返行程。` }])
+    try {
+      await selectionQueue.current
+      if (run !== activeRun.current) return
+      const syncedSelection = historySelection.current
+      const context = discoveryConversation && syncedSelection && syncedSelection.thread === discoveryConversation.thread_id
+        ? { ...discoveryConversation, expected_revision: syncedSelection.revision } : discoveryConversation
+      const stored = context?.thread_id && context.expected_revision
+        ? await chooseDiscoveryFromHistory(context, candidate.card.attraction_id, text) : null
+      const draft = stored?.draft ?? await planMultiStop(candidate.request)
+      if (run === activeRun.current) {
+        setDiscoveryConversation((value) => value ? { ...value, selected_attraction_id: candidate.card.attraction_id, ...(stored ? { expected_revision: stored.history.revision } : {}) } : value)
+        if (stored) {
+          historySelection.current = { thread: stored.history.thread_id, revision: stored.history.revision, draft: draft.draft_id, plan: draft.result.selection.selected_plan_id ?? draft.result.selection.recommended_plan_id ?? '' }
+          void refreshConversations()
+        }
+        adoptMultiDraft(draft, true, stored?.history.assistant_content)
+      }
+    } catch (cause) {
+      if (run === activeRun.current) setChatError(cause instanceof Error ? cause.message : '规划失败，目的地候选仍保留，请重试。')
+    } finally { if (run === activeRun.current) setIsSending(false) }
+  }
 
   function handleNewConversation() {
+    if (discoveryBusy) return
+    historySelection.current = null
+    setSelectionSyncError('')
+    setDiscoveryConversation(null)
+    setDiscoveryNotice('')
+    setMultiContext(null)
+    window.history.replaceState(null, '', window.location.pathname)
+    setDiscoveryResult(null)
+    setDiscoveryOpen(false)
     activeRun.current++
     historyLoad.current++
     setCurrentJourney(null)
@@ -1374,6 +1568,7 @@ function App() {
     if (isSending || isDeciding || pendingActions.length > 0) {
       return
     }
+    if (discoveryBusy) return
 
     const loadId = ++historyLoad.current
     activeRun.current++
@@ -1391,7 +1586,23 @@ function App() {
         cards: storedMessage.cards,
       }))
       setMessages(loadedMessages)
-      setCurrentJourney(latestJourney(loadedMessages, detail.conversation.thread_id))
+      const snapshot = detail.discovery
+      const anchor = snapshot?.anchor_message_id ? loadedMessages.findIndex((item) => item.id === snapshot.anchor_message_id) : -1
+      const laterRoute = loadedMessages.findLastIndex((item) => item.cards?.some(isRouteChoiceCard)) > anchor
+      let journey = latestJourney(loadedMessages, detail.conversation.thread_id)
+      if (snapshot?.stage === 'journey' && snapshot.draft_id && !laterRoute && journey?.card.type === 'multi_stop') {
+        journey = { ...journey, card: { ...journey.card, draft_id: snapshot.draft_id } }
+      }
+      setCurrentJourney(journey)
+      setDiscoveryConversation(snapshot ? { request: snapshot.request, candidate_ids: snapshot.result.candidates.map((item) => item.card.attraction_id), selected_attraction_id: snapshot.selected_attraction_id, pending_changes: laterRoute ? null : snapshot.pending_changes, thread_id: detail.conversation.thread_id, expected_revision: snapshot.revision } : null)
+      setDiscoveryResult(snapshot && (snapshot.stage ?? 'candidates') === 'candidates' && !laterRoute ? snapshot.result : null)
+      setDiscoveryNotice(snapshot && !laterRoute ? snapshot.notice ?? '' : '')
+      const selection = snapshot?.draft_id && snapshot.plan_id && journey?.card.type === 'multi_stop' && journey.card.draft_id === snapshot.draft_id
+        ? { draft_id: snapshot.draft_id, plan_id: snapshot.plan_id } : null
+      setMultiContext(selection)
+      historySelection.current = snapshot?.stage === 'journey' && snapshot.draft_id && journey?.card.type === 'multi_stop' && journey.card.draft_id === snapshot.draft_id
+        ? { thread: detail.conversation.thread_id, revision: snapshot.revision, draft: snapshot.draft_id, plan: snapshot.plan_id ?? '' } : null
+      setSelectionSyncError('')
       setThreadId(detail.conversation.thread_id)
       setPendingActions([])
     } catch (error) {
@@ -1468,8 +1679,30 @@ function App() {
     forceNewThread = false,
   ) {
     const trimmedMessage = rawMessage.trim()
-    if (!trimmedMessage || isSending || isLoadingHistory || pendingActions.length > 0) {
+    if (!trimmedMessage || isSending || discoveryBusy || isLoadingHistory || pendingActions.length > 0) {
       return
+    }
+    if (!forceNewThread && discoveryResult && !discoveryConversation && isDiscoveryEdit(trimmedMessage)) {
+      if (clearComposer) setMessage('')
+      setMessages((items) => [...items, { id: crypto.randomUUID(), role: 'user', content: trimmedMessage },
+        { id: crypto.randomUUID(), role: 'assistant', content: '这份旧版本候选未保存完整推荐条件。请打开“帮我选目的地”确认一次条件，之后即可在对话中连续修改；本次未猜测或覆盖原条件。' }])
+      return
+    }
+    const pendingDiscoveryReply = discoveryConversation?.pending_changes && /^(?:好|好的|可以|[零〇一二两三四五六七八九十百千万\d.半]+(?:个半?)?(?:小时|分钟|分)半?)[。！!]*$/.test(trimmedMessage)
+    if (!forceNewThread && discoveryConversation && (isDiscoveryEdit(trimmedMessage) || pendingDiscoveryReply)
+        && (discoveryResult || /换(?:一)?个(?:目的地|景点|馆区)|重新推荐|不要推荐|别推荐/.test(trimmedMessage))) {
+      if (clearComposer) setMessage('')
+      await refineDestinations(trimmedMessage)
+      return
+    }
+    if (!forceNewThread && discoveryResult) {
+      const choices = discoveryResult.candidates.filter((item) =>
+        [`去${item.card.name}`, `去${item.card.name}。`, `选择${item.card.name}`].includes(trimmedMessage))
+      if (choices.length === 1) {
+        if (clearComposer) setMessage('')
+        await chooseDiscovery(choices[0], trimmedMessage)
+        return
+      }
     }
     const runId = ++activeRun.current
     let responseCards: ResultCard[] = []
@@ -1537,11 +1770,21 @@ function App() {
             streamEvent.type === 'result_card'
             && streamEvent.card
           ) {
-            const resultCard = streamEvent.card as ResultCard
+            const incomingCard = streamEvent.card as ResultCard
+            const manualChoice = /^(?:选择(?:驾车|步行)方案|选择公共交通候选\s*\d+)$/.test(trimmedMessage)
+            const resultCard = manualChoice && !forceNewThread
+              && currentJourney?.threadId === streamEvent.thread_id
+              && currentJourney.card.type === 'planning' && incomingCard.type === 'planning'
+              ? preservePlanningOrder(currentJourney.card, incomingCard) : incomingCard
+            if (resultCard.type === 'multi_stop') {
+              setDiscoveryResult(null)
+              setMultiContext(null)
+            }
             responseCards = resultCard.type === 'planning'
               ? [...responseCards.filter((card) => card.type !== 'planning'), resultCard]
               : [...responseCards, resultCard]
             if (isRouteChoiceCard(resultCard)) {
+              setDiscoveryResult(null)
               setCurrentJourney({
                 threadId: streamEvent.thread_id,
                 card: resultCard,
@@ -1598,6 +1841,7 @@ function App() {
             setActivityText('')
           }
         },
+        ...(!forceNewThread && !discoveryResult && currentJourney?.card.type === 'multi_stop' ? [multiContext?.draft_id ?? currentJourney.card.draft_id, multiContext?.plan_id] : []),
       )
     } catch (error) {
       if (runId !== activeRun.current) return
@@ -1682,7 +1926,7 @@ function App() {
               type="button"
               className="button-secondary"
               onClick={handleNewConversation}
-              disabled={pendingActions.length > 0 || isDeciding}
+              disabled={pendingActions.length > 0 || isDeciding || discoveryBusy}
             >
               新建对话
             </button>
@@ -1692,6 +1936,23 @@ function App() {
         <p>天气、地点搜索和多方式路线规划，由 Agent 自动调用工具完成。</p>
       </header>
 
+      <nav className="planning-mode-nav" aria-label="出行快捷操作">
+        <NotificationCenter disabled={isSending || discoveryBusy || isDeciding || isLoadingHistory || pendingActions.length > 0}
+          onReplan={async (detail) => {
+            handleNewConversation()
+            const source = detail.kind === 'single' ? detail.snapshot : null
+            setReplanningItinerary(source)
+            await sendUserMessage(detail.replan_prompt, false, source, true)
+          }} />
+        <button type="button" disabled={isSending || discoveryBusy || isDeciding || isLoadingHistory || pendingActions.length > 0} onClick={() => setDiscoveryOpen(true)}>帮我选目的地</button>
+      </nav>
+      <Modal open={discoveryOpen} title="帮我选目的地" onClose={() => setDiscoveryOpen(false)}>
+        <DiscoveryWorkspace active={discoveryOpen} criteria={discoveryConversation?.request} historyRevision={discoveryConversation?.expected_revision} onPlan={() => {}} onStart={startDiscovery} onResult={finishDiscovery} onError={(error) => {
+          setDiscoveryBusy(false); setChatError(error)
+          setMessages((items) => items.map((item) => item.id === discoveryMessageId.current ? { ...item, content: `本次目的地推荐未完成：${error}。请重新打开快捷入口检查条件后重试。` } : item))
+        }} />
+      </Modal>
+      <div>
       <div className="app-layout">
         <aside className="history-panel" aria-labelledby="history-title">
           <div className="sidebar-section">
@@ -1934,13 +2195,13 @@ function App() {
               onChange={(event) => setMessage(event.target.value)}
               placeholder="输入出行问题或补充偏好……"
               rows={3}
-              disabled={isSending || isDeciding || pendingActions.length > 0}
+              disabled={isSending || discoveryBusy || isDeciding || pendingActions.length > 0}
             />
             <button
               type="submit"
               aria-label="发送问题"
               disabled={
-                isSending || !message.trim() || connectionState !== 'connected'
+                isSending || discoveryBusy || !message.trim() || connectionState !== 'connected'
                 || isDeciding
                 || pendingActions.length > 0
               }
@@ -1963,7 +2224,7 @@ function App() {
               <p>{action.description}</p>
 
               <dl>
-                {Object.entries(action.args).map(([name, value]) => (
+                {Object.entries(action.args).filter(([name]) => name !== 'watch_context').map(([name, value]) => (
                   <div key={name}>
                     <dt>{name}</dt>
                     <dd>{formatActionValue(value)}</dd>
@@ -1999,12 +2260,12 @@ function App() {
       </div>
       <section className="journey-workspace" aria-labelledby="journey-title" ref={journeyPanel} tabIndex={-1}>
         <div className="journey-workspace-heading">
-          <div><p className="result-card-kicker">你的出行计划</p><h2 id="journey-title">当前行程</h2></div>
-          <span>{isSending ? '正在更新' : currentJourney ? '可查看和调整' : '等待规划'}</span>
+          <div><p className="result-card-kicker">你的出行计划</p><h2 id="journey-title">{discoveryResult ? '目的地候选' : '当前行程'}</h2></div>
+          <span>{isSending || discoveryBusy ? '正在更新' : discoveryResult ? '先选目的地，再规划路线' : currentJourney ? '可查看和调整' : '等待规划'}</span>
         </div>
         {isSending && <p className="journey-update-hint">正在处理出行请求，完成后会更新方案。</p>}
         {threadId && <button type="button"
-          disabled={isSending || isLoadingHistory || isDeciding || pendingActions.length > 0 || versionsLoading}
+          disabled={isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length > 0 || versionsLoading}
           onClick={() => { void openVersions() }}>方案版本</button>}
         {versionsOpen && <section aria-label="方案版本">
           <p>历史综合规划与公共交通方案。查看不改变当前行程；采用后才切换，已保存行程不受影响。</p>
@@ -2018,33 +2279,40 @@ function App() {
           {previewVersion && <div aria-label="历史方案只读预览">
             <p>只读预览 · {previewVersion.stale ? '已过期或时效未知，出发前请刷新' : '查询时快照，未重新请求路线'}</p>
             <ResultCardView card={previewVersion.card} strategyChangeDisabled saveDisabled />
-            <button type="button" disabled={isSending || isLoadingHistory || isDeciding || pendingActions.length > 0}
+            <button type="button" disabled={isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length > 0}
               onClick={() => { void sendUserMessage(`采用历史方案 ${previewVersion.version_id}`) }}>采用此方案</button>
           </div>}
           <button type="button" onClick={() => { setVersionsOpen(false); setPreviewVersion(null) }}>关闭版本查看</button>
         </section>}
         {chatError && currentJourney && <p className="journey-update-hint" role="note">本次更新未完成：{chatError}。上一个可用方案仍保留。</p>}
-        {currentJourney?.threadId === threadId && (!isCompact || activePanel === 'journey') ? (
+        {discoveryBusy && <p role="status">正在比较目的地，完成后会在这里展示候选。</p>}
+        {discoveryNotice && <p role="note">{discoveryNotice}</p>}
+        {selectionSyncError && <p role="alert">当前选择尚未同步历史：{selectionSyncError} <button type="button" onClick={() => { if (multiContext) acceptMultiContext(multiContext) }}>重试同步当前选择</button></p>}
+        {discoveryResult && (!isCompact || activePanel === 'journey') && <DiscoveryResults result={discoveryResult} onPlan={(candidate) => { void chooseDiscovery(candidate) }} disabled={isSending || discoveryBusy || isDeciding || pendingActions.length > 0 || Boolean(discoveryNotice)} />}
+        {!discoveryResult && currentJourney?.threadId === threadId && (!isCompact || activePanel === 'journey') ? (
           <ResultCardView
             key={isCompact ? 'compact-journey' : 'wide-journey'}
             card={currentJourney.card}
-            strategyChangeDisabled={isSending || isLoadingHistory || isDeciding || pendingActions.length > 0}
-            saveDisabled={isSending || isLoadingHistory || isDeciding || pendingActions.length > 0}
+            onMultiContext={acceptMultiContext}
+            multiSelectedPlanId={currentJourney.card.type === 'multi_stop' && multiContext?.draft_id === currentJourney.card.draft_id ? multiContext.plan_id : undefined}
+            strategyChangeDisabled={isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length > 0}
+            saveDisabled={isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length > 0}
             onSelectPlan={(candidate) => { void sendUserMessage(routeSelectionMessage(candidate)) }}
             onSelectPriority={(priority) => { void sendUserMessage(PRIORITY_MESSAGES[priority]) }}
             onApplyConstraints={(message) => { void sendUserMessage(message) }}
             onSelectTransitCandidate={(index) => { void sendUserMessage(`选择公共交通候选${index + 1}`) }}
             onSaveItinerary={() => { void sendUserMessage('保存当前选择的行程') }}
           />
-        ) : !currentJourney && <div className="journey-empty"><h3>先告诉我你想去哪里</h3><p>在对话中提供起点、目的地和出发时间，路线方案与地图会集中展示在这里。</p></div>}
-        {currentJourney?.threadId === threadId && currentJourney.card.type !== 'planning' && (
-          <button type="button" disabled={isSending || isLoadingHistory || isDeciding || pendingActions.length > 0}
+        ) : !currentJourney && !discoveryResult && !discoveryBusy && <div className="journey-empty"><h3>先告诉我你想去哪里</h3><p>在对话中说明起点、目的地或多个站点，也可点击“帮我选目的地”。出发时间可选。</p></div>}
+        {!discoveryResult && currentJourney?.threadId === threadId && currentJourney.card.type !== 'planning' && currentJourney.card.type !== 'multi_stop' && (
+          <button type="button" disabled={isSending || discoveryBusy || isLoadingHistory || isDeciding || pendingActions.length > 0}
             onClick={() => { void sendUserMessage('保存当前选择的行程') }}>保存以上行程</button>
         )}
         {activePanel === 'journey' && <button type="button" className="workspace-back-to-chat" onClick={() => setActivePanel('chat')}>返回对话</button>}
       </section>
       </div>
         </div>
+      </div>
       </div>
     </main>
   )

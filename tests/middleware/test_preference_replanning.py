@@ -41,6 +41,14 @@ def previous_plan_messages() -> list[object]:
     ]
 
 
+def test_sequential_visit_request_does_not_reuse_previous_single_leg():
+    messages = previous_plan_messages() + [HumanMessage(content=(
+        "从深圳大学粤海校区出发，到深圳人才公园停留60分钟，再去深圳湾公园。"
+        "不能驾车，暂时不指定出发时间。"
+    ))]
+    assert replanning_middleware().before_model({'messages': messages}, object()) is None
+
+
 def previous_plan_messages_with_transit_candidates() -> list[object]:
     payload = build_payload()
     payload["transit_candidates"] = [

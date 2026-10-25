@@ -103,6 +103,8 @@ class AmapPlaceService:
                     display_name=display_name,
                     latitude=wgs84.latitude,
                     longitude=wgs84.longitude,
+                    provider_place_id=poi.get("id") if isinstance(poi.get("id"), str) else None,
+                    city_code=AmapPlaceService._city_code(poi.get("adcode")),
                     category=(str(poi.get("type")) if poi.get("type") else None),
                     place_type=(
                         str(poi.get("typecode"))
@@ -118,3 +120,14 @@ class AmapPlaceService:
             attribution=AMAP_PLACE_ATTRIBUTION,
             provider="amap",
         )
+
+    @staticmethod
+    def _city_code(adcode: object) -> str | None:
+        """Use a consistent prefecture-level adcode, including direct municipalities."""
+        if not isinstance(adcode, str) or len(adcode) != 6 or not adcode.isdigit():
+            return None
+        if adcode[:2] in {"11", "12", "31", "50"}:
+            return adcode[:2] + "0000"
+        if adcode[:4] in {"4190", "4290", "4690", "6590"}:
+            return adcode
+        return adcode[:4] + "00"

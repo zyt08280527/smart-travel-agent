@@ -13,6 +13,8 @@ from langchain.agents.middleware import (
 )
 from langchain_core.messages import HumanMessage, ToolMessage
 
+from travel_agent.middleware.multi_stop_intent import has_current_multi_stop, is_multi_stop_intent
+
 _ARRIVAL_DEADLINE_PATTERN = re.compile(
     r"最晚|不迟于|(?:点|时|:)\s*(?:前|之前)|"
     r"(?:前|之前)\s*(?:到|到达)|(?:到|到达).*?(?:前|之前)"
@@ -51,6 +53,9 @@ class ArrivalDeadlineRoutingMiddleware(AgentMiddleware):
         if latest_human_index is None:
             return await handler(request)
         content = messages[latest_human_index].content
+        if ((isinstance(content, str) and is_multi_stop_intent(content))
+                or has_current_multi_stop(messages)):
+            return await handler(request)
         if not isinstance(content, str) or not (
             _ARRIVAL_DEADLINE_PATTERN.search(content)
             and _ROUTE_PATTERN.search(content)
@@ -116,6 +121,8 @@ class ArrivalDeadlineRoutingMiddleware(AgentMiddleware):
             return await handler(request)
 
         tool_call = request.tool_call
+        if is_multi_stop_intent(content):
+            return await handler(request)
         raw_args = tool_call.get("args", {})
         args = dict(raw_args) if isinstance(raw_args, dict) else {}
         args["departure_time_text"] = None

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -617,7 +617,8 @@ describe('App streaming chat', () => {
       .toBeInTheDocument()
     expect(screen.getByLabelText('M176路 → 地铁1号线地图'))
       .toBeInTheDocument()
-    await user.click(screen.getAllByText('查看完整路线').at(-2)!)
+    const subwayRoute = screen.getByRole('button', { name: '选择行程方案 地铁5号线' }).closest('li')!
+    await user.click(within(subwayRoute).getByText('查看完整路线'))
     expect(screen.getByText('步行至大学城站')).toBeInTheDocument()
     expect(screen.getByText('大学城站 → 西丽站 · 途经 2 站'))
       .toBeInTheDocument()
@@ -949,5 +950,24 @@ describe('App streaming chat', () => {
       expect(screen.queryByText('准备删除的会话')).not.toBeInTheDocument()
     })
     expect(confirmMock).toHaveBeenCalledTimes(2)
+  })
+
+  test.each(['amap', 'openstreetmap', null] as const)('聊天地点卡仅对明确高德地点提供景点入口：%s', async (provider) => {
+    streamChatMock.mockImplementation(async (_message, _threadId, onEvent) => {
+      onEvent({ type: 'run_started', thread_id: 'place-thread' })
+      onEvent({ type: 'result_card', thread_id: 'place-thread', card: {
+        type: 'place', query: '深圳博物馆', provider, attribution: '地点来源', places: [{
+          display_name: '金田路馆', latitude: 22.54639, longitude: 114.0568, provider_place_id: 'B02F38IRTR', city_code: '440300',
+        }],
+      } })
+      onEvent({ type: 'final', thread_id: 'place-thread', answer: '请核对馆区。' })
+      onEvent({ type: 'done', thread_id: 'place-thread' })
+    })
+    const user = userEvent.setup()
+    render(<App />)
+    await user.type(screen.getByLabelText('输入你的出行问题'), '查询深圳博物馆')
+    await user.click(screen.getByRole('button', { name: '发送问题' }))
+    await screen.findByText('金田路馆')
+    expect(screen.queryAllByText('景点参观信息')).toHaveLength(provider === 'amap' ? 1 : 0)
   })
 })

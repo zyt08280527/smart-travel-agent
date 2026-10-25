@@ -105,6 +105,18 @@ def test_save_selected_direct_transit_candidate_uses_candidate_two() -> None:
     assert corrected["duration_basis"] == "static_without_live_traffic"
     assert "地铁7号线" in corrected["notes"]
     assert "换乘 2 次" in corrected["notes"]
+    assert corrected["watch_context"]["origin"] == payload["origin"]
+    assert corrected["watch_context"]["preferences"]["transit_strategy"] == "subway_first"
+
+
+def test_model_supplied_watch_context_without_trusted_route_is_removed():
+    save = AIMessage(content="", tool_calls=[{
+        "name": "save_itinerary", "id": "save", "args": {
+            "title": "旧摘要", "watch_context": {"origin": {"latitude": 0, "longitude": 0}},
+        },
+    }])
+    result = ItinerarySaveGroundingMiddleware().after_model({"messages": [save]}, object())
+    assert "watch_context" not in result["messages"][0].tool_calls[0]["args"]
 
 
 def test_save_without_route_snapshot_is_not_modified() -> None:

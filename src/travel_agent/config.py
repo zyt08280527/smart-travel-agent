@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     itinerary_storage_path: Path = Path("data/itineraries.jsonl")
     checkpoint_storage_path: Path = Path("data/checkpoints.sqlite")
     conversation_storage_path: Path = Path("data/conversations.sqlite")
+    trip_storage_path: Path = Path("data/trips.sqlite")
     business_timezone: str = Field(default="Asia/Shanghai", min_length=1)
     route_snapshot_ttl_seconds: int = Field(default=300, ge=0, le=86400)
     app_env: str = "development"
@@ -34,6 +35,7 @@ class ApiSettings(BaseSettings):
     """HTTP boundary settings that do not require model credentials."""
 
     model_config = ENV_FILE_CONFIG
+    multi_stop_storage_path: Path = Path("data/multi_stop.sqlite")
 
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: [

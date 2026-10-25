@@ -5,7 +5,7 @@ import pytest
 from langchain.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from tests.services.test_travel_replanning import build_payload
-from travel_agent.api.streaming import normalize_stream_part
+from travel_agent.api.streaming import normalize_stream_part, result_card_from_tool_message
 
 THREAD_ID = UUID("12345678-1234-5678-1234-567812345678")
 
@@ -618,6 +618,11 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
             ],
         },
     ]
+    payload["selected_transit_candidate_index"] = 0
+    payload["recommended_transit_candidate_index"] = 0
+    initial_card = result_card_from_tool_message(ToolMessage(
+        content=json.dumps(payload), name="recommend_travel_plan", tool_call_id="initial",
+    ))
     payload["selected_transit_candidate_index"] = 1
     payload["selected_mode"] = "transit"
 
@@ -657,10 +662,24 @@ def test_planning_card_exposes_concrete_transit_candidates() -> None:
     assert card.transit_candidates[1].line_names == ["M176路", "地铁1号线"]
     assert [candidate.plan_id for candidate in card.route_candidates] == [
         "driving:0",
-        "transit:1",
         "transit:0",
+        "transit:1",
         "walking:0",
     ]
+    assert [item.plan_id for item in card.route_candidates] == [
+        item.plan_id for item in initial_card.route_candidates
+    ]
+    assert card.recommended_plan_id == initial_card.recommended_plan_id
+    for mode in ["walking", "driving"]:
+        payload["selected_mode"] = mode
+        mode_card = result_card_from_tool_message(ToolMessage(
+            content=json.dumps(payload), name="recommend_travel_plan", tool_call_id=mode,
+        ))
+        assert [item.plan_id for item in mode_card.route_candidates] == [
+            item.plan_id for item in card.route_candidates
+        ]
+        assert mode_card.selected_plan_id == f"{mode}:0"
+        assert mode_card.recommended_plan_id == card.recommended_plan_id
     selected = next(
         candidate for candidate in card.route_candidates if candidate.selected
     )

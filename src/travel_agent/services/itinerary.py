@@ -57,6 +57,16 @@ class ItineraryService:
         if not deleted:
             raise ItineraryNotFoundError("已保存行程不存在")
 
+    async def get(self, itinerary_id: str) -> SavedItinerary:
+        try:
+            records = await asyncio.to_thread(self._read_records)
+        except (OSError, UnicodeError) as exc:
+            raise ItineraryServiceError("行程读取失败，请稍后重试") from exc
+        record = next((item for item in records if item.itinerary_id == itinerary_id), None)
+        if record is None:
+            raise ItineraryNotFoundError("已保存行程不存在")
+        return record
+
     def _append_record(self, record: SavedItinerary) -> None:
         self._storage_path.parent.mkdir(parents=True, exist_ok=True)
         with self._storage_path.open("a", encoding="utf-8") as file:

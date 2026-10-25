@@ -17,6 +17,8 @@ def _latest_route_payload(
     """Return the newest route snapshot and whether transit was manually selected."""
     for message in reversed(messages):
         if isinstance(message, AIMessage):
+            if "multi_stop_place_clarification" in message.additional_kwargs:
+                return "multi_stop", {}, False
             planning = message.additional_kwargs.get("travel_planning_payload")
             if isinstance(planning, dict):
                 update = message.additional_kwargs.get("travel_planning_update")
@@ -30,6 +32,8 @@ def _latest_route_payload(
                 return "transit", transit, True
         if not isinstance(message, ToolMessage):
             continue
+        if message.name == "plan_multi_stop_trip":
+            return "multi_stop", {}, False
         content = message.content
         if not isinstance(content, str):
             continue
@@ -73,6 +77,17 @@ def _ground_from_transit(
         index = 0
     option = plan.options[index]
     grounded = dict(args)
+    grounded.pop("watch_context", None)
+    grounded["watch_context"] = {
+        "city": plan.origin_city_code,
+        "origin_name": str(args.get("origin", "起点")),
+        "destination_name": str(args.get("destination", "终点")),
+        "origin": plan.origin.model_dump(mode="json"),
+        "destination": plan.destination.model_dump(mode="json"),
+        "preferences": {"transit_strategy": {
+            0: "recommended", 2: "fewest_transfers", 3: "least_walking", 7: "subway_first",
+        }.get(plan.strategy, "recommended")},
+    }
     grounded.update(
         {
             "travel_mode": "transit",
@@ -93,6 +108,7 @@ def _ground_from_planning(
 ) -> dict[str, Any]:
     result = TravelComparisonResult.model_validate(payload)
     grounded = dict(args)
+    grounded["watch_context"] = result.context.model_dump(mode="json")
     grounded["origin"] = result.context.origin_name
     grounded["destination"] = result.context.destination_name
 
@@ -157,8 +173,20 @@ class ItinerarySaveGroundingMiddleware(AgentMiddleware):
             [message for message in messages if message is not last_ai]
         )
         if route is None:
-            return None
+            if not any(call.get("name") == "save_itinerary"
+                       and "watch_context" in call.get("args", {}) for call in last_ai.tool_calls):
+                return None
+            calls = [{**call, "args": {k: v for k, v in call.get("args", {}).items()
+                                       if k != "watch_context"}}
+                     if call.get("name") == "save_itinerary" else call
+                     for call in last_ai.tool_calls]
+            return {"messages": [last_ai.model_copy(update={"tool_calls": calls})]}
         route_type, payload, manual_transit_selection = route
+        if route_type == "multi_stop":
+            return {"messages": [last_ai.model_copy(update={
+                "content": "请在多站点行程页面选择并确认保存完整行程，不能用单段保存替代。",
+                "tool_calls": [],
+            })]}
 
         revised_calls = []
         changed = False

@@ -6,6 +6,10 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from pydantic import ValidationError
+
+from travel_agent.domain.multi_stop import MultiStopDraft
+from travel_agent.middleware.multi_stop_intent import has_current_multi_stop
 
 _EXPLANATION_PATTERN = re.compile(
     r"(?:为什么|为何).*(?:推荐|选择)|(?:推荐|选择).*(?:原因|理由)|解释.*推荐"
@@ -18,7 +22,49 @@ _PRIORITY_NAMES = {
     "cheapest": "优先省钱",
     "least_walking": "优先少步行",
     "fewest_transfers": "优先少换乘",
+    "subway_first": "地铁优先",
 }
+
+
+def explain_latest_multi_stop(messages: list[object]) -> str:
+    """Use the latest tool snapshot only; never resurrect an older successful draft."""
+    fallback = "最新多站点结果不足以解释推荐，请先重新规划完整行程。"
+    message = next((item for item in reversed(messages) if isinstance(item, ToolMessage)
+                    and item.name == "plan_multi_stop_trip"), None)
+    if message is None:
+        return fallback
+    for payload in reversed(_tool_payloads(message)):
+        try:
+            draft = MultiStopDraft.model_validate(payload)
+        except ValidationError:
+            continue
+        selection = draft.result.selection
+        winner = next((plan for plan in selection.plans
+                       if plan.plan_id == selection.recommended_plan_id), None)
+        if (selection.status != "feasible" or winner is None
+                or winner.evaluation.status != "feasible" or winner.evaluation.totals is None):
+            return ("本次没有可确认可行的完整推荐，不能解释为已推荐某种交通方式，"
+                    "请调整限制或补齐路线数据。")
+        totals = winner.evaluation.totals
+        lines = ["多站点系统推荐依据本次完整候选的确定性筛选和排序，不是模型主观选择。",
+                 "先检查整段时间线、驾车条件及累计限制，再按"
+                 + _PRIORITY_NAMES.get(draft.result.request.preferences.priority, "均衡偏好")
+                 + "排序；综合分不是耗时或票价本身，不保证同时最快、最便宜。",
+                 "推荐各段：" + " → ".join(_MODE_NAMES[item.leg.option.mode]
+                                          for item in winner.evaluation.legs),
+                 f"预计总耗时 {totals.elapsed_s / 60:g} 分钟，"
+                 f"含等待 {totals.waiting_s / 60:g} 分钟、停留 {totals.stay_s / 60:g} 分钟。"]
+        if draft.result.request.preferences.can_drive is False:
+            lines.append("不能驾车只排除驾车，不代表只能步行；公共交通仍可参与比较。")
+        lines.append("总费用未知。" if totals.total_cost_yuan is None
+                     else f"本次路线总费用 {totals.total_cost_yuan:g} 元。")
+        if selection.selected_plan_id and selection.selected_plan_id != winner.plan_id:
+            lines.append("用户当前选择与系统推荐不同；以上解释针对系统推荐。页面上的手选方案不会被此解释更改。")
+        lines.extend(winner.reasons)
+        lines.extend(dict.fromkeys([*selection.limitations, *winner.evaluation.limitations]))
+        lines.append("其他候选查询失败仅表示本次数据未取得，不代表现实中不存在该交通方式。未计算天气，不保证未来路况或班次。")
+        return "\n".join(lines)
+    return fallback
 
 
 def _number(value: object) -> float | None:
@@ -45,6 +91,8 @@ def _tool_payloads(message: ToolMessage) -> list[dict[str, object]]:
 
 def latest_planning_payload(messages: list[object]) -> dict[str, object] | None:
     for message in reversed(messages):
+        if isinstance(message, ToolMessage) and message.name == "plan_multi_stop_trip":
+            return None
         if isinstance(message, AIMessage):
             payload = message.additional_kwargs.get("travel_planning_payload")
             if isinstance(payload, dict):
@@ -179,6 +227,11 @@ class RecommendationExplanationMiddleware(AgentMiddleware):
         if not isinstance(content, str) or not _EXPLANATION_PATTERN.search(content):
             return None
 
+        if has_current_multi_stop(list(messages[:-1])):
+            if re.search(r"改|调整|重新|重算|保存|换|增加|减少|删除|添加", content):
+                return None
+            return {"jump_to": "end", "messages": [AIMessage(
+                content=explain_latest_multi_stop(list(messages[:-1])))]}
         payload = latest_planning_payload(list(messages[:-1]))
         answer = (
             render_recommendation_explanation(payload)

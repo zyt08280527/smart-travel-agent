@@ -1,4 +1,4 @@
-const API_BASE_URL = (
+export const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 ).replace(/\/$/, '')
 
@@ -87,10 +87,13 @@ export type PlaceCandidateCard = {
   longitude: number
   category?: string
   place_type?: string
+  provider_place_id?: string | null
+  city_code?: string | null
 }
 
 export type PlaceResultCard = {
   type: 'place'
+  provider?: 'amap' | 'openstreetmap' | null
   query: string
   places: PlaceCandidateCard[]
   attribution: string
@@ -205,6 +208,7 @@ export type PlanningResultCard = {
 }
 
 export type SavedItinerary = {
+  watch_context?: { origin?: MapPoint | null; destination?: MapPoint | null; departure_time?: { departure_at: string } | null } | null
   itinerary_id: string
   title: string
   origin: string
@@ -224,6 +228,7 @@ export type ItineraryListResultCard = {
 }
 
 export type ResultCard =
+  | { type: 'multi_stop'; draft_id: string; stop_names: string[]; status: string }
   | WeatherResultCard
   | RouteResultCard
   | TransitResultCard
@@ -253,6 +258,7 @@ export type StoredConversationMessage = {
 export type ConversationDetail = {
   conversation: ConversationSummary
   messages: StoredConversationMessage[]
+  discovery?: import('./discoveryApi').DiscoverySnapshot | null
 }
 
 export type AgentStreamEvent = {
@@ -358,6 +364,8 @@ export async function streamChat(
   message: string,
   threadId: string | undefined,
   onEvent: (event: AgentStreamEvent) => void,
+  multiStopDraftId?: string,
+  multiStopPlanId?: string,
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
     method: 'POST',
@@ -365,6 +373,8 @@ export async function streamChat(
     body: JSON.stringify({
       message,
       ...(threadId ? { thread_id: threadId } : {}),
+      ...(multiStopDraftId ? { multi_stop_draft_id: multiStopDraftId } : {}),
+      ...(multiStopDraftId && multiStopPlanId ? { multi_stop_plan_id: multiStopPlanId } : {}),
     }),
   })
   if (!response.ok) {

@@ -1,14 +1,23 @@
 import type { PlanningResultCard, ResultCard, RouteResultCard, TransitResultCard } from './api'
 
-export type RouteChoiceCard = PlanningResultCard | TransitResultCard | RouteResultCard
+export type RouteChoiceCard = PlanningResultCard | TransitResultCard | RouteResultCard | Extract<ResultCard, { type: 'multi_stop' }>
 export type JourneyMessage = { id: string; cards?: ResultCard[] }
 export type CurrentJourney = {
   threadId: string
   card: RouteChoiceCard
 }
 
+export function preservePlanningOrder(previous: PlanningResultCard, incoming: PlanningResultCard): PlanningResultCard {
+  if (incoming.route_refreshed || previous.origin_name !== incoming.origin_name
+    || previous.destination_name !== incoming.destination_name
+    || !previous.route_candidates?.length || !incoming.route_candidates?.length) return incoming
+  const positions = new Map(previous.route_candidates.map((candidate, index) => [candidate.plan_id, index]))
+  return { ...incoming, route_candidates: [...incoming.route_candidates].sort((left, right) =>
+    (positions.get(left.plan_id) ?? Infinity) - (positions.get(right.plan_id) ?? Infinity)) }
+}
+
 export function isRouteChoiceCard(card: ResultCard): card is RouteChoiceCard {
-  return card.type === 'planning' || card.type === 'transit' || card.type === 'route'
+  return card.type === 'planning' || card.type === 'transit' || card.type === 'route' || card.type === 'multi_stop'
 }
 
 export function latestJourney(messages: JourneyMessage[], threadId: string): CurrentJourney | null {
@@ -32,6 +41,7 @@ export function restoreJourney(
 }
 
 export function journeySummary(card: RouteChoiceCard): string {
+  if (card.type === 'multi_stop') return `${card.stop_names.join(' → ')}的多站点结果已更新，完整方案和各分段路线已放入右侧行程面板。`
   const modes = { driving: '驾车', transit: '公共交通', walking: '步行' }
   if (card.type === 'planning') {
     const choice = card.route_candidates?.find((candidate) => candidate.plan_id === card.selected_plan_id)

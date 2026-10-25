@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from travel_agent.api.schemas import (
     AgentStreamEvent,
     ItineraryListResultCard,
+    MultiStopResultCard,
     PlaceCandidateCard,
     PlaceResultCard,
     PlanningExcludedOptionCard,
@@ -24,6 +25,7 @@ from travel_agent.api.schemas import (
     WeatherResultCard,
 )
 from travel_agent.domain.itinerary import SavedItinerary
+from travel_agent.domain.multi_stop import MultiStopDraft
 
 
 def _text_from_content(content: object) -> str:
@@ -250,12 +252,15 @@ def _place_card(message: ToolMessage) -> PlaceResultCard | None:
                 longitude=place["longitude"],
                 category=place.get("category"),
                 place_type=place.get("place_type"),
+                provider_place_id=place.get("provider_place_id"),
+                city_code=place.get("city_code"),
             )
             for place in places
             if isinstance(place, dict)
         ]
         return PlaceResultCard(
             type="place",
+            provider=payload.get("provider"),
             query=payload["query"],
             places=candidates,
             attribution=payload["attribution"],
@@ -345,11 +350,7 @@ def _planning_card_from_payload(
 
         for option in ranked_cards:
             if option.mode == "transit" and transit_cards:
-                ordered_transit_cards = sorted(
-                    transit_cards,
-                    key=lambda item: item.candidate_index != transit_index,
-                )
-                for transit in ordered_transit_cards:
+                for transit in transit_cards:
                     plan_id = f"transit:{transit.candidate_index}"
                     is_transit_choice = transit.candidate_index == transit_index
                     is_transit_recommendation = transit.candidate_index == recommended_transit_index
@@ -562,9 +563,20 @@ def result_card_from_tool_message(
     | TransitResultCard
     | PlaceResultCard
     | ItineraryListResultCard
+    | MultiStopResultCard
     | None
 ):
     """Build one public result card from a supported tool message."""
+    if message.name == "plan_multi_stop_trip":
+        try:
+            draft = MultiStopDraft.model_validate_json(_text_from_content(message.content))
+            return MultiStopResultCard(
+                draft_id=draft.draft_id,
+                stop_names=[stop.name for stop in draft.result.request.stops],
+                status=draft.result.selection.status,
+            )
+        except ValueError:
+            return None
     return (
         _weather_card(message)
         or _route_card(message)

@@ -12,6 +12,8 @@ class ChatRequest(BaseModel):
 
     message: str = Field(min_length=1, max_length=4000)
     thread_id: UUID | None = None
+    multi_stop_draft_id: UUID | None = None
+    multi_stop_plan_id: str | None = Field(default=None, min_length=1, max_length=100)
 
     @field_validator("message")
     @classmethod
@@ -105,12 +107,15 @@ class PlaceCandidateCard(BaseModel):
     longitude: float = Field(ge=-180, le=180)
     category: str | None = None
     place_type: str | None = None
+    provider_place_id: str | None = None
+    city_code: str | None = None
 
 
 class PlaceResultCard(BaseModel):
     """Normalized place-search candidates for structured display."""
 
     type: Literal["place"]
+    provider: Literal["amap", "openstreetmap"] | None = None
     query: str = Field(min_length=1)
     places: list[PlaceCandidateCard]
     attribution: str = Field(min_length=1)
@@ -268,6 +273,13 @@ class AgentResponse(BaseModel):
     pending_actions: list[PendingAction] = Field(default_factory=list)
 
 
+class MultiStopResultCard(BaseModel):
+    type: Literal["multi_stop"] = "multi_stop"
+    draft_id: UUID
+    stop_names: list[str]
+    status: Literal["feasible", "infeasible", "insufficient_data"]
+
+
 class AgentStreamEvent(BaseModel):
     """One stable application event emitted during an Agent run."""
 
@@ -294,6 +306,7 @@ class AgentStreamEvent(BaseModel):
         | PlaceResultCard
         | PlanningResultCard
         | ItineraryListResultCard
+        | MultiStopResultCard
         | None
     ) = None
     pending_actions: list[PendingAction] = Field(default_factory=list)

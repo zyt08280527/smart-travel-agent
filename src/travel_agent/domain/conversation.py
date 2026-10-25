@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from travel_agent.domain.discovery import DiscoverySnapshot
+
 ConversationStatus = Literal["ready", "approval_required", "error"]
 MessageRole = Literal["user", "assistant"]
 
@@ -34,3 +36,4 @@ class ConversationDetail(BaseModel):
 
     conversation: ConversationSummary
     messages: list[StoredConversationMessage]
+    discovery: DiscoverySnapshot | None = None
